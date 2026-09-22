@@ -82,10 +82,10 @@ export const askStatsForJourney = query({
     if (!journey) return { openRequestCount: 0, recommendationCount: 0, pendingCount: 0 }
     const requests = await ctx.db.query('askRequests')
       .withIndex('by_journeyId_and_createdAt', (q) => q.eq('journeyId', journey._id))
-      .take(50)
+      .collect()
     const recommendations = await Promise.all(requests.map((request) => ctx.db.query('recommendations')
       .withIndex('by_askRequestId_and_submittedAt', (q) => q.eq('askRequestId', request._id))
-      .take(100)))
+      .collect()))
     const flat = recommendations.flat()
     return {
       openRequestCount: requests.filter((request) => request.status === 'open').length,

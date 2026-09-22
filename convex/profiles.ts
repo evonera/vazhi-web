@@ -68,7 +68,14 @@ export const saveMine = mutation({
     }
     if (current) {
       if (current.handle && current.handle !== handle) {
-        await ctx.db.insert('profileHandleAliases', { ownerAuthUserId, handle: current.handle, createdAt: Date.now() })
+        const existingAlias = await ctx.db.query('profileHandleAliases')
+          .withIndex('by_handle', (q) => q.eq('handle', current.handle!))
+          .unique()
+        // A handle remains an alias for its original owner exactly once. This
+        // also keeps `.unique()` lookup valid when they switch A → B → A → B.
+        if (!existingAlias) {
+          await ctx.db.insert('profileHandleAliases', { ownerAuthUserId, handle: current.handle, createdAt: Date.now() })
+        }
       }
       await ctx.db.patch(current._id, profile)
       return current._id
