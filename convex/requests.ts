@@ -200,7 +200,15 @@ export const createForOwner = internalMutation({
     const requestSlug = slug()
     const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId: args.ownerAuthUserId, journeyId, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', recommendationCount: 0, pendingRecommendationCount: 0, createdAt: now })
     await ctx.db.patch(journeyId, { askRequestCount: (existingJourney?.askRequestCount ?? 0) + 1, openAskRequestCount: (existingJourney?.openAskRequestCount ?? 0) + 1, updatedAt: now })
-    return { id: requestId, slug: requestSlug, prompt: args.prompt, destination: args.destination, status: 'open' as const }
+    return {
+      id: requestId,
+      localJourneyID: args.localJourneyID,
+      slug: requestSlug,
+      prompt: args.prompt,
+      destination: args.destination,
+      status: 'open' as const,
+      recommendationCount: 0,
+    }
   },
 })
 
@@ -243,7 +251,22 @@ export const listForOwner = internalQuery({
   args: { ownerAuthUserId: v.string() },
   handler: async (ctx, args) => {
     const requests = await ctx.db.query('askRequests').withIndex('by_ownerAuthUserId_and_createdAt', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId)).order('desc').take(50)
-    return requests.map((request) => ({ id: request._id, slug: request.slug, prompt: request.prompt, destination: request.destination, status: request.status, createdAt: request.createdAt, recommendationCount: request.recommendationCount }))
+    // The local UUID is owner-only metadata. Returning it here lets the native
+    // app reconnect a durable request to its offline SwiftData Journey after a
+    // relaunch, without making it part of a public request projection.
+    return Promise.all(requests.map(async (request) => {
+      const journey = await ctx.db.get(request.journeyId)
+      return {
+        id: request._id,
+        localJourneyID: journey?.localID,
+        slug: request.slug,
+        prompt: request.prompt,
+        destination: request.destination,
+        status: request.status,
+        createdAt: request.createdAt,
+        recommendationCount: request.recommendationCount,
+      }
+    }))
   },
 })
 
