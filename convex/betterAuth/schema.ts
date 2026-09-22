@@ -1,0 +1,30 @@
+import { defineSchema, defineTable } from 'convex/server'
+import { v } from 'convex/values'
+
+// Better Auth's local-install tables. This is intentionally separate from
+// Vazhi's product schema so a fresh deployment cannot inherit legacy data.
+export const tables = {
+  user: defineTable({
+    name: v.string(), email: v.string(), emailVerified: v.boolean(),
+    image: v.optional(v.union(v.null(), v.string())), createdAt: v.number(), updatedAt: v.number(),
+    userId: v.optional(v.union(v.null(), v.string())),
+  }).index('email_name', ['email', 'name']).index('name', ['name']).index('userId', ['userId']),
+  session: defineTable({
+    expiresAt: v.number(), token: v.string(), createdAt: v.number(), updatedAt: v.number(), userId: v.string(),
+    ipAddress: v.optional(v.union(v.null(), v.string())), userAgent: v.optional(v.union(v.null(), v.string())),
+  }).index('expiresAt', ['expiresAt']).index('expiresAt_userId', ['expiresAt', 'userId']).index('token', ['token']).index('userId', ['userId']),
+  account: defineTable({
+    accountId: v.string(), providerId: v.string(), userId: v.string(), createdAt: v.number(), updatedAt: v.number(),
+    accessToken: v.optional(v.union(v.null(), v.string())), refreshToken: v.optional(v.union(v.null(), v.string())), idToken: v.optional(v.union(v.null(), v.string())),
+    accessTokenExpiresAt: v.optional(v.union(v.null(), v.number())), refreshTokenExpiresAt: v.optional(v.union(v.null(), v.number())),
+    scope: v.optional(v.union(v.null(), v.string())), password: v.optional(v.union(v.null(), v.string())),
+  }).index('accountId', ['accountId']).index('accountId_providerId', ['accountId', 'providerId']).index('userId', ['userId']),
+  verification: defineTable({
+    identifier: v.string(), value: v.string(), expiresAt: v.number(), createdAt: v.number(), updatedAt: v.number(),
+  }).index('expiresAt', ['expiresAt']).index('identifier', ['identifier']),
+  jwks: defineTable({
+    publicKey: v.string(), privateKey: v.string(), createdAt: v.number(), expiresAt: v.optional(v.union(v.null(), v.number())),
+  }),
+}
+
+export default defineSchema(tables)
