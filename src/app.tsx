@@ -1,17 +1,24 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
-import { categoryLabel, type Place, type PublicAskRequest, recommendationCategories, type RecommendationCategory } from './lib/contracts'
-import { publicAskAPI } from './lib/api'
+import { categoryLabel, type Place, type PublicAskRequest, type PublicListing, type PublicProfile, recommendationCategories, type RecommendationCategory } from './lib/contracts'
+import { publicAskAPI, publicGuideAPI } from './lib/api'
 import { getConvexAccessToken, startAppleSignIn } from './lib/auth'
 
 const demoRequest: PublicAskRequest = { slug: 'demo-malaysia', prompt: 'Going to Malaysia in November — where should I go?', destination: 'Malaysia', journeyTitle: 'Malaysia in November', status: 'open' }
 const downloadURL = typeof window === 'undefined' ? 'https://vazhi.app/download' : `${window.location.origin}/download`
 
 function currentSlug(): string | null { return window.location.pathname.match(/^\/ask\/([^/]+)$/)?.[1] ?? null }
+function currentProfileRoute(): { handle: string; slug?: string } | null {
+  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,24})(?:\/([a-z0-9-]{3,64}))?\/?$/i)
+  return match ? { handle: match[1], slug: match[2] } : null
+}
 
 export function App() {
   const slug = currentSlug()
+  const profileRoute = currentProfileRoute()
   if (slug) return <AskPage slug={slug} />
+  if (profileRoute?.slug) return <PublicGuidePage handle={profileRoute.handle} slug={profileRoute.slug} />
+  if (profileRoute) return <PublicProfilePage handle={profileRoute.handle} />
   if (window.location.pathname === '/privacy') return <LegalPage title="Privacy" />
   if (window.location.pathname === '/terms') return <LegalPage title="Terms" />
   if (window.location.pathname === '/report') return <LegalPage title="Report a link" />
@@ -68,6 +75,24 @@ function RecommendationForm({ request, demo }: { request: PublicAskRequest; demo
   if (status === 'success') return <section className="success-card" aria-live="polite"><p className="success-mark" aria-hidden="true">✓</p><p className="ask-label">SENT</p><h2>That’s on their path.</h2><p>Your recommendation stays private to the trip owner until they choose what to use.</p><a className="button" href="/">Make your own Vazhi request <span aria-hidden="true">↗</span></a></section>
   return <form className="recommendation-card" onSubmit={submit}><div className="recommendation-card__title"><span aria-hidden="true">✦</span><div><p className="ask-label">YOUR TIP</p><h2>Add a place to their path.</h2></div></div><fieldset><legend>Who are you?</legend><label className="checkbox"><input type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} /> <span>Submit anonymously</span></label>{!anonymous && <label>Your first name<input required maxLength={40} autoComplete="given-name" value={name} onChange={(event) => setName(event.target.value)} /></label>}<label>Instagram handle <span className="optional">optional</span><input maxLength={50} placeholder="@yourhandle" value={handle} onChange={(event) => setHandle(event.target.value)} /></label></fieldset><fieldset><legend>The good stuff</legend><label>Category<select value={category} onChange={(event) => setCategory(event.target.value as RecommendationCategory)}>{recommendationCategories.map((item) => <option key={item} value={item}>{categoryLabel[item]}</option>)}</select></label><label>Find a place<input required value={selectedPlace ? placeLabel : query} placeholder={`Search in ${request.destination}`} onChange={(event) => { setSelectedPlace(null); setQuery(event.target.value) }} /></label>{results.length > 0 && <div className="results" role="listbox" aria-label="Place results">{results.map((place) => <button key={`${place.provider}-${place.providerPlaceID ?? place.name}`} type="button" onClick={() => { setSelectedPlace(place); setResults([]) }}><strong>{place.name}</strong><span>{place.address}</span></button>)}</div>}{selectedPlace && <button type="button" className="clear-place" onClick={() => { setSelectedPlace(null); setQuery('') }}>Change selected place</button>}<details className="pin-fallback"><summary>Can’t find it? Drop a map pin instead.</summary><label>Pin coordinates <span className="optional">latitude, longitude</span><input placeholder="3.1390, 101.6869" onBlur={(event) => { if (selectedPlace || !event.target.value.trim()) return; const [latitude, longitude] = event.target.value.split(',').map(Number); if (Number.isFinite(latitude) && Number.isFinite(longitude)) setSelectedPlace({ provider: 'manual', name: 'Pinned place', latitude, longitude }) }} /></label></details><label>Why is it worth it?<textarea required maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="What should they order, notice, or avoid?" /></label><label>Reference link <span className="optional">optional, https only</span><input type="url" placeholder="https://…" value={referenceURL} onChange={(event) => setReferenceURL(event.target.value)} /></label></fieldset>{error && <p className="form-error" role="alert">{error}</p>}<button className="button button--submit" disabled={!canSubmit} type="submit">{status === 'submitting' ? 'Sending…' : 'Add to their path'} <span aria-hidden="true">↗</span></button><p className="fine-print">Private to this trip owner. Do not submit someone’s home or sensitive location.</p></form>
 }
+
+function PublicProfilePage({ handle }: { handle: string }) {
+  const [profile, setProfile] = useState<PublicProfile | null>(null); const [error, setError] = useState<string | null>(null)
+  useEffect(() => { publicGuideAPI.getProfile(handle).then(setProfile).catch(() => setError('This profile is unavailable.')) }, [handle])
+  if (error) return <UnavailableGuide />
+  if (!profile) return <main className="route-page route-page--centered"><p>Opening guide maker…</p></main>
+  return <main className="guide-page"><SiteHeader /><section className="guide-profile"><p className="section-label">@{profile.handle}</p><h1>{profile.displayName ?? `@${profile.handle}`}</h1>{profile.bio && <p className="lede">{profile.bio}</p>}<p className="guide-privacy">Only owner-approved, versioned guides appear here. Private journals stay private.</p><div className="guide-list">{profile.listings.length === 0 ? <p>No public guides yet.</p> : profile.listings.map((listing) => <a className="guide-listing" key={listing.slug} href={`/@${profile.handle}/${listing.slug}`}><p className="section-label">{listing.stopCount} stops · versioned guide</p><h2>{listing.title}</h2>{listing.subtitle && <p>{listing.subtitle}</p>}<span>Open guide ↗</span></a>)}</div></section><SiteFooter /></main>
+}
+
+function PublicGuidePage({ handle, slug }: { handle: string; slug: string }) {
+  const [listing, setListing] = useState<PublicListing | null>(null); const [error, setError] = useState<string | null>(null); const [reporting, setReporting] = useState(false); const [reported, setReported] = useState(false)
+  useEffect(() => { publicGuideAPI.getListing(handle, slug).then(setListing).catch(() => setError('This guide is unavailable.')) }, [handle, slug])
+  if (error) return <UnavailableGuide />
+  if (!listing) return <main className="route-page route-page--centered"><p>Opening guide…</p></main>
+  return <main className="guide-page"><SiteHeader /><article className="guide-detail"><p className="section-label">@{listing.handle} · version {listing.versionNumber}</p><h1>{listing.title}</h1>{listing.subtitle && <p className="lede">{listing.subtitle}</p>}<p className="guide-disclaimer">{listing.disclaimer}</p><ol className="guide-stops">{listing.stops.map((stop) => <li key={stop.orderIndex}><p className="section-label">Stop {stop.orderIndex + 1}{stop.isApproximateLocation ? ' · approximate location' : ''}</p><h2>{stop.title}</h2>{(stop.placeName || stop.locality) && <p className="guide-place">{stop.placeName ?? stop.locality}</p>}{stop.notes && <p>{stop.notes}</p>}</li>)}</ol><button className="text-link" onClick={() => setReporting(true)}>Report this guide</button>{reporting && <form className="report-form" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void publicGuideAPI.reportListing(listing.slug, String(form.get('reason') ?? ''), String(form.get('detail') ?? '')).then(() => { setReported(true); setReporting(false) }) }}><label>Reason<select name="reason" required defaultValue=""><option value="" disabled>Select a reason</option><option>Private or sensitive location</option><option>Copyright or impersonation</option><option>Unsafe or misleading travel information</option><option>Other</option></select></label><label>Details <span className="optional">optional</span><textarea name="detail" maxLength={1000} /></label><button className="button button--submit">Send report</button></form>}{reported && <p className="form-success" role="status">Thanks — your report was received.</p>}</article><SiteFooter /></main>
+}
+
+function UnavailableGuide() { return <main className="route-page route-page--centered"><h1>This guide is unavailable.</h1><p>It may be private, unpublished, or no longer available.</p><a href="/" className="button">Meet Vazhi</a></main> }
 
 function DownloadPage() { return <main className="download-page"><SiteHeader /><section><p className="section-label">VAZHI ON THE WAY</p><h1>Vazhi for iPhone is almost here.</h1><p>We’ll make this page open the App Store as soon as Vazhi is live. Until then, the complete Ask the Way experience works in your browser.</p><a className="button" href="/ask/demo-malaysia">Try the public demo <span aria-hidden="true">↗</span></a><p className="platform-note">Android · coming soon</p></section><SiteFooter /></main> }
 function SignInPage() { const [error, setError] = useState<string | null>(null); return <main className="route-page route-page--centered"><p className="eyebrow">Owner access</p><h1>Sign in on Vazhi.</h1><p>Use Apple to manage links you created. Audience members never need an account.</p><button className="button" onClick={() => startAppleSignIn().catch((reason: Error) => setError(reason.message))}>Continue with Apple</button>{error && <p className="form-error" role="alert">{error}</p>}</main> }
