@@ -20,21 +20,28 @@ const place = v.object({
 export default defineSchema({
   ...betterAuthTables,
   journeys: defineTable({
-    ownerAuthUserId: v.string(),
+    // Keep the former token field during the one-time, self-service claim.
+    // This lets an existing deployment accept the schema before its documents
+    // are backfilled to Better Auth's opaque user ID.
+    ownerAuthUserId: v.optional(v.string()),
+    ownerTokenIdentifier: v.optional(v.string()),
     localID: v.string(),
     title: v.string(),
     destination: v.string(),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),
-    askRequestCount: v.number(),
-    openAskRequestCount: v.number(),
-    recommendationCount: v.number(),
-    pendingRecommendationCount: v.number(),
+    askRequestCount: v.optional(v.number()),
+    openAskRequestCount: v.optional(v.number()),
+    recommendationCount: v.optional(v.number()),
+    pendingRecommendationCount: v.optional(v.number()),
     updatedAt: v.number(),
-  }).index('by_ownerAuthUserId_and_localID', ['ownerAuthUserId', 'localID']),
+  })
+    .index('by_ownerAuthUserId_and_localID', ['ownerAuthUserId', 'localID'])
+    .index('by_ownerTokenIdentifier_and_localID', ['ownerTokenIdentifier', 'localID']),
 
   askRequests: defineTable({
-    ownerAuthUserId: v.string(),
+    ownerAuthUserId: v.optional(v.string()),
+    ownerTokenIdentifier: v.optional(v.string()),
     journeyId: v.id('journeys'),
     // The immutable device-side UUID joins an authenticated request back to a
     // local SwiftData Journey. It never appears in a public projection.
@@ -46,13 +53,14 @@ export default defineSchema({
     destination: v.string(),
     journeyTitle: v.optional(v.string()),
     status: v.union(v.literal('open'), v.literal('closed')),
-    recommendationCount: v.number(),
-    pendingRecommendationCount: v.number(),
+    recommendationCount: v.optional(v.number()),
+    pendingRecommendationCount: v.optional(v.number()),
     createdAt: v.number(),
     closedAt: v.optional(v.number()),
   })
     .index('by_slug', ['slug'])
     .index('by_ownerAuthUserId_and_createdAt', ['ownerAuthUserId', 'createdAt'])
+    .index('by_ownerTokenIdentifier_and_createdAt', ['ownerTokenIdentifier', 'createdAt'])
     .index('by_journeyId_and_createdAt', ['journeyId', 'createdAt']),
 
   recommendations: defineTable({
@@ -72,7 +80,8 @@ export default defineSchema({
     .index('by_askRequestId_and_status_and_submittedAt', ['askRequestId', 'status', 'submittedAt']),
 
   paths: defineTable({
-    ownerAuthUserId: v.string(),
+    ownerAuthUserId: v.optional(v.string()),
+    ownerTokenIdentifier: v.optional(v.string()),
     journeyId: v.id('journeys'),
     title: v.string(),
     status: v.literal('draft'),
