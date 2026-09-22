@@ -36,6 +36,9 @@ export default defineSchema({
   askRequests: defineTable({
     ownerAuthUserId: v.string(),
     journeyId: v.id('journeys'),
+    // The immutable device-side UUID joins an authenticated request back to a
+    // local SwiftData Journey. It never appears in a public projection.
+    localJourneyID: v.string(),
     slug: v.string(),
     prompt: v.string(),
     destination: v.string(),
@@ -60,6 +63,7 @@ export default defineSchema({
     note: v.string(),
     referenceURL: v.optional(v.string()),
     status: v.union(v.literal('pending'), v.literal('accepted'), v.literal('ignored')),
+    acceptedAt: v.optional(v.number()),
     submittedAt: v.number(),
   })
     .index('by_askRequestId_and_submittedAt', ['askRequestId', 'submittedAt'])

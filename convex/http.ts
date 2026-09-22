@@ -135,6 +135,7 @@ http.route({ path: '/api/owner/recommendations', method: 'GET', handler: httpAct
       note: recommendation.note,
       referenceURL: recommendation.referenceURL,
       status: recommendation.status,
+      acceptedAt: recommendation.acceptedAt,
       submittedAt: recommendation.submittedAt,
     })))
   } catch {
