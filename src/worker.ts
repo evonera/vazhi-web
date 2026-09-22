@@ -55,6 +55,7 @@ async function requestMetadata(url: URL, env: Env) {
 }
 
 function withOGCache(response: Response) {
+  if (!response.ok) return response
   const headers = new Headers(response.headers)
   headers.set('cache-control', 'public, max-age=300, stale-while-revalidate=3600')
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
@@ -75,13 +76,19 @@ const worker = {
       const response = await fetch(`${env.CONVEX_HTTP_URL.replace(/\/$/, '')}/og/ask?slug=${encodeURIComponent(slug)}`)
       return withOGCache(response)
     }
-    const asset = await env.ASSETS.fetch(request)
-    if (asset.status !== 404) return asset
-    if (request.method !== 'GET' || !request.headers.get('accept')?.includes('text/html')) return asset
-    const index = await env.ASSETS.fetch(new Request(new URL('/index.html', url)))
-    const meta = await requestMetadata(url, env)
-    if (!meta) return index
-    return new Response((await index.text()).replace('<!-- vazhi:meta -->', meta), { headers: { 'content-type': 'text/html; charset=utf-8' } })
+    const wantsHTML = request.method === 'GET' && request.headers.get('accept')?.includes('text/html')
+    const supportsDynamicMetadata = /^\/ask\/[^/]+$/.test(url.pathname) || /^\/@[a-z0-9_]{3,24}\/[a-z0-9-]{3,64}\/?$/i.test(url.pathname)
+    if (wantsHTML && supportsDynamicMetadata) {
+      const meta = await requestMetadata(url, env)
+      if (meta) {
+        const index = await env.ASSETS.fetch(new Request(new URL('/index.html', url)))
+        return new Response((await index.text()).replace(/<!-- vazhi:meta:start -->[\s\S]*?<!-- vazhi:meta:end -->/, meta), {
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        })
+      }
+    }
+
+    return env.ASSETS.fetch(request)
   },
 }
 
