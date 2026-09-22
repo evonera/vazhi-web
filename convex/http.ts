@@ -167,6 +167,37 @@ http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (
   }
 }) })
 
+http.route({ path: '/places/autocomplete', method: 'POST', handler: httpAction(async (ctx, request) => {
+  const input = await request.json() as { input?: string; destination?: string }
+  try {
+    return json(await ctx.runAction(internal.places.autocomplete, { input: input.input ?? '', destination: input.destination }))
+  } catch {
+    return json({ message: 'Place suggestions are temporarily unavailable.' }, 503)
+  }
+}) })
+
+http.route({ path: '/places/details', method: 'POST', handler: httpAction(async (ctx, request) => {
+  const input = await request.json() as { placeID?: string }
+  try {
+    return json(await ctx.runAction(internal.places.details, { placeID: input.placeID ?? '' }))
+  } catch {
+    return json({ message: 'Place details are temporarily unavailable.' }, 503)
+  }
+}) })
+
+http.route({ path: '/api/owner/routes', method: 'POST', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerTokenIdentifier = await ownerTokenIdentifier(ctx)
+    const input = await request.json() as { requestID?: string; stops?: Array<{ latitude?: number; longitude?: number }>; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' | 'TRANSIT' }
+    await ctx.runQuery(internal.requests.assertRequestOwner, { ownerTokenIdentifier, requestId: input.requestID ?? '' } as never)
+    const stops = (input.stops ?? []).flatMap((stop) => typeof stop.latitude === 'number' && typeof stop.longitude === 'number' ? [{ latitude: stop.latitude, longitude: stop.longitude }] : [])
+    const travelMode = input.travelMode ?? 'DRIVE'
+    return json(await ctx.runAction(internal.routes.compute, { stops, travelMode }))
+  } catch {
+    return json({ message: 'This route is unavailable. You can still edit your Path.' }, 400)
+  }
+}) })
+
 http.route({ path: '/api/recommendations', method: 'OPTIONS', handler: httpAction(async () => new Response(null, { headers: { 'access-control-allow-origin': process.env.SITE_URL ?? '', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type, authorization', 'vary': 'Origin' } })) })
 
 export default http

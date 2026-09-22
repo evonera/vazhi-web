@@ -173,6 +173,15 @@ export const listRecommendationsForOwner = internalQuery({
   },
 })
 
+export const assertRequestOwner = internalQuery({
+  args: { ownerTokenIdentifier: v.string(), requestId: v.id('askRequests') },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId)
+    if (!request || request.ownerTokenIdentifier !== args.ownerTokenIdentifier) throw new ConvexError('Request not found.')
+    return { journeyId: request.journeyId }
+  },
+})
+
 export const setRecommendationStatusForOwner = internalMutation({
   args: { ownerTokenIdentifier: v.string(), recommendationId: v.id('recommendations'), status: v.union(v.literal('accepted'), v.literal('ignored')) },
   handler: async (ctx, args) => {

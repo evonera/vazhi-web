@@ -1,6 +1,19 @@
 import { ConvexError, v } from 'convex/values'
 import { internalAction } from './_generated/server'
 
+type GooglePlace = {
+  id?: string
+  displayName?: { text?: string }
+  formattedAddress?: string
+  location?: { latitude?: number; longitude?: number }
+  primaryType?: string
+}
+
+function normalize(item: GooglePlace) {
+  if (!item.id || !item.displayName?.text || item.location?.latitude === undefined || item.location.longitude === undefined) return null
+  return { provider: 'google' as const, providerPlaceID: item.id, name: item.displayName.text, address: item.formattedAddress, latitude: item.location.latitude, longitude: item.location.longitude, primaryType: item.primaryType }
+}
+
 export const search = internalAction({
   args: { query: v.string(), destination: v.string() },
   handler: async (_ctx, args) => {
@@ -14,10 +27,52 @@ export const search = internalAction({
       body: JSON.stringify({ textQuery: query, pageSize: 5 }),
     })
     if (!response.ok) throw new ConvexError('Place search is temporarily unavailable.')
-    const body = await response.json() as { places?: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; location?: { latitude?: number; longitude?: number }; primaryType?: string }> }
-    return (body.places ?? []).flatMap((item) => {
-      if (!item.id || !item.displayName?.text || item.location?.latitude === undefined || item.location.longitude === undefined) return []
-      return [{ provider: 'google' as const, providerPlaceID: item.id, name: item.displayName.text, address: item.formattedAddress, latitude: item.location.latitude, longitude: item.location.longitude, primaryType: item.primaryType }]
+    const body = await response.json() as { places?: GooglePlace[] }
+    return (body.places ?? []).flatMap((item) => normalize(item) ?? [])
+  },
+})
+
+// Autocomplete is deliberately a suggestion list, not a place record. The app
+// follows it with `details`, which is the only path that normalizes a place.
+export const autocomplete = internalAction({
+  args: { input: v.string(), destination: v.optional(v.string()) },
+  handler: async (_ctx, args) => {
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY
+    const input = args.input.trim()
+    if (input.length < 2) return []
+    if (!apiKey) throw new ConvexError('Place search is not configured.')
+    const response = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat',
+      },
+      body: JSON.stringify({ input, includedRegionCodes: [], ...(args.destination?.trim() ? { inputOffset: input.length } : {}) }),
     })
+    if (!response.ok) throw new ConvexError('Place search is temporarily unavailable.')
+    const body = await response.json() as { suggestions?: Array<{ placePrediction?: { placeId?: string; text?: { text?: string }; structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } } } }> }
+    return (body.suggestions ?? []).flatMap(({ placePrediction }) => {
+      if (!placePrediction?.placeId || !placePrediction.text?.text) return []
+      return [{ placeID: placePrediction.placeId, text: placePrediction.text.text, primaryText: placePrediction.structuredFormat?.mainText?.text, secondaryText: placePrediction.structuredFormat?.secondaryText?.text }]
+    })
+  },
+})
+
+export const details = internalAction({
+  args: { placeID: v.string() },
+  handler: async (_ctx, args) => {
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY
+    if (!apiKey) throw new ConvexError('Place search is not configured.')
+    const response = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(args.placeID)}`, {
+      headers: {
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'id,displayName,formattedAddress,location,primaryType',
+      },
+    })
+    if (!response.ok) throw new ConvexError('Place details are temporarily unavailable.')
+    const place = normalize(await response.json() as GooglePlace)
+    if (!place) throw new ConvexError('Place details were incomplete.')
+    return place
   },
 })
