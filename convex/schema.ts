@@ -197,7 +197,8 @@ export default defineSchema({
   })
     .index('by_slug', ['slug'])
     .index('by_ownerAuthUserId_and_localPathID', ['ownerAuthUserId', 'localPathID'])
-    .index('by_ownerAuthUserId_and_status_and_updatedAt', ['ownerAuthUserId', 'status', 'updatedAt']),
+    .index('by_ownerAuthUserId_and_status_and_updatedAt', ['ownerAuthUserId', 'status', 'updatedAt'])
+    .index('by_ownerAuthUserId_and_visibility_and_status_and_updatedAt', ['ownerAuthUserId', 'visibility', 'status', 'updatedAt']),
 
   itineraryVersions: defineTable({
     listingId: v.id('publicItineraryListings'),
@@ -223,10 +224,15 @@ export default defineSchema({
     targetType: v.literal('listing'),
     listingId: v.optional(v.id('publicItineraryListings')),
     listingSlug: v.string(),
+    // A salted one-way edge bucket, never a raw IP address. It deduplicates
+    // repeated reports for one guide without becoming product identity data.
+    reportFingerprint: v.string(),
     reason: v.string(),
     detail: v.optional(v.string()),
     status: v.union(v.literal('open'), v.literal('reviewed'), v.literal('dismissed')),
     createdAt: v.number(),
-  }).index('by_listingId_and_createdAt', ['listingId', 'createdAt']),
+  })
+    .index('by_listingId_and_createdAt', ['listingId', 'createdAt'])
+    .index('by_listingId_and_reportFingerprint', ['listingId', 'reportFingerprint']),
 
 })

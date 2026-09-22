@@ -127,6 +127,7 @@ http.route({ path: '/api/reports', method: 'POST', handler: httpAction(async (ct
       listingSlug: typeof input.listingSlug === 'string' ? input.listingSlug : '',
       reason: typeof input.reason === 'string' ? input.reason : '',
       detail: typeof input.detail === 'string' ? input.detail : undefined,
+      rateLimitKey: await requestBucket(request),
     })
   } catch { /* Return a generic receipt; reports are not an existence oracle. */ }
   return json({ accepted: true })
