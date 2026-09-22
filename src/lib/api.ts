@@ -20,10 +20,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-// Public writes use the website origin so the Cloudflare Worker can verify
-// Turnstile and attach its server-only ingress signature. Reads intentionally
-// continue to use the Convex public projection endpoints.
-async function publicWrite<T>(path: '/api/recommendations' | '/api/reports', init: RequestInit): Promise<T> {
+// Public ingress uses the website origin so the Cloudflare Worker can attach
+// its server-only ingress signature. Submission routes also verify Turnstile;
+// place search deliberately stays frictionless but must be signed the same
+// way. Reads intentionally continue to use Convex public projection endpoints.
+async function publicIngress<T>(path: '/api/recommendations' | '/api/reports' | '/places/search', init: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: { 'content-type': 'application/json', ...init.headers },
@@ -40,13 +41,13 @@ export const publicAskAPI = {
     return request<PublicAskRequest>(`/api/ask?slug=${encodeURIComponent(slug)}`)
   },
   searchPlaces(query: string, slug: string) {
-    return request<PlaceSearchResult[]>('/places/search', {
+    return publicIngress<PlaceSearchResult[]>('/places/search', {
       method: 'POST',
       body: JSON.stringify({ query, slug }),
     })
   },
   submit(slug: string, submission: RecommendationSubmission) {
-    return publicWrite<{ accepted: true }>('/api/recommendations', {
+    return publicIngress<{ accepted: true }>('/api/recommendations', {
       method: 'POST',
       body: JSON.stringify({ slug, ...submission }),
     })
@@ -61,7 +62,7 @@ export const publicGuideAPI = {
     return request<PublicListing>(`/api/listing?handle=${encodeURIComponent(handle)}&slug=${encodeURIComponent(slug)}`)
   },
   reportListing(listingSlug: string, reason: string, detail?: string) {
-    return publicWrite<{ accepted: true }>('/api/reports', {
+    return publicIngress<{ accepted: true }>('/api/reports', {
       method: 'POST', body: JSON.stringify({ listingSlug, reason, detail }),
     })
   },
