@@ -38,13 +38,16 @@ function validatedSuggestions(value: unknown, sources: SourceMoment[], model: st
     throw new ConvexError('Cloud intelligence returned an invalid response.')
   }
   const sourceIDs = new Set(sources.map((source) => source.id))
-  return ((value as { suggestions: RawSuggestion[] }).suggestions).map((suggestion) => {
+  const rawSuggestions = (value as { suggestions: RawSuggestion[] }).suggestions
+  if (rawSuggestions.length > 3) throw new ConvexError('Cloud intelligence returned too many suggestions.')
+  return rawSuggestions.map((suggestion) => {
     if (typeof suggestion.title !== 'string' || !suggestion.title.trim() ||
       typeof suggestion.summary !== 'string' || !suggestion.summary.trim() ||
       typeof suggestion.friendTip !== 'string' || !
       Array.isArray(suggestion.tags) || !suggestion.tags.every((tag) => typeof tag === 'string') ||
       typeof suggestion.confidence !== 'number' || suggestion.confidence < 0 || suggestion.confidence > 1 ||
       !Array.isArray(suggestion.sourceMomentIDs) || suggestion.sourceMomentIDs.length === 0 ||
+      suggestion.sourceMomentIDs.length > sources.length ||
       !suggestion.sourceMomentIDs.every((id) => typeof id === 'string' && sourceIDs.has(id))) {
       throw new ConvexError('Cloud intelligence returned an invalid response.')
     }
@@ -54,7 +57,7 @@ function validatedSuggestions(value: unknown, sources: SourceMoment[], model: st
       summary: suggestion.summary.trim().slice(0, 600),
       friendTip: suggestion.friendTip.trim().slice(0, 300),
       confidence: suggestion.confidence,
-      sourceMomentIDs: suggestion.sourceMomentIDs,
+      sourceMomentIDs: [...new Set(suggestion.sourceMomentIDs)],
       modelVersion: `cloud:${model}`,
     }
   })
@@ -79,8 +82,9 @@ export const recordUsage = internalMutation({
 })
 
 /**
- * Calls the configured provider with user-approved text only. It has no media,
- * transcription, coordinate, or raw-device-identity fields by construction.
+ * Calls the configured provider with user-approved text only. A selected note
+ * may contain a speech transcript; the native consent preview exposes it.
+ * This request has no media, coordinate, or raw-device-identity fields.
  */
 export const generateSuggestions = internalAction({
   args: {

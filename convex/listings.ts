@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { internalMutation, internalQuery } from './_generated/server'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
+import { redactPublicCoordinates } from '../src/lib/publicGuide'
 
 const visibility = v.union(v.literal('public'), v.literal('unlisted'))
 const stop = v.object({
@@ -33,7 +34,7 @@ function clean(value: string, maximum: number, label: string) {
 function validatedStops(stops: Array<{
   orderIndex: number; title: string; notes: string; placeName?: string; locality?: string
   latitude?: number; longitude?: number; isApproximateLocation: boolean
-}>) {
+}>, approximateLocations: boolean) {
   if (stops.length === 0 || stops.length > 100) throw new ConvexError('Publish between 1 and 100 stops.')
   const seen = new Set<number>()
   return [...stops]
@@ -45,7 +46,7 @@ function validatedStops(stops: Array<{
       seen.add(item.orderIndex)
       if (item.latitude !== undefined && (item.latitude < -90 || item.latitude > 90)) throw new ConvexError('A stop has invalid latitude.')
       if (item.longitude !== undefined && (item.longitude < -180 || item.longitude > 180)) throw new ConvexError('A stop has invalid longitude.')
-      return {
+      return redactPublicCoordinates({
         orderIndex: index,
         title: clean(item.title, 120, 'Stop title'),
         notes: item.notes.trim().slice(0, 1_000),
@@ -53,10 +54,10 @@ function validatedStops(stops: Array<{
         locality: item.locality?.trim().slice(0, 120) || undefined,
         // Coordinates tagged approximate are never trusted as client-side
         // redactions: omit them entirely from the immutable public snapshot.
-        latitude: item.isApproximateLocation ? undefined : item.latitude,
-        longitude: item.isApproximateLocation ? undefined : item.longitude,
+        latitude: item.latitude,
+        longitude: item.longitude,
         isApproximateLocation: item.isApproximateLocation,
-      }
+      }, approximateLocations)
     })
 }
 
@@ -99,7 +100,7 @@ export const publishForOwner = internalMutation({
       subtitle: args.subtitle.trim().slice(0, 280),
       disclaimer: clean(args.disclaimer, 500, 'Guide disclaimer'),
       approximateLocations: args.approximateLocations,
-      stops: validatedStops(args.stops),
+      stops: validatedStops(args.stops, args.approximateLocations),
       createdAt: now,
     })
     await ctx.db.patch(listingId, {
@@ -173,7 +174,9 @@ export const getPublicListing = internalQuery({
       subtitle: version.subtitle,
       disclaimer: version.disclaimer,
       approximateLocations: version.approximateLocations,
-      stops: version.stops,
+      // Redact again on read so previously published versions cannot expose
+      // coordinates if an older writer stored a mixed guide/stop choice.
+      stops: version.stops.map((stop) => redactPublicCoordinates(stop, version.approximateLocations)),
       publishedAt: listing.updatedAt,
     }
   },
