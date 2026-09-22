@@ -39,10 +39,10 @@ export const publicAskAPI = {
   getRequest(slug: string) {
     return request<PublicAskRequest>(`/api/ask?slug=${encodeURIComponent(slug)}`)
   },
-  searchPlaces(query: string, destination: string) {
+  searchPlaces(query: string, slug: string) {
     return request<PlaceSearchResult[]>('/places/search', {
       method: 'POST',
-      body: JSON.stringify({ query, destination }),
+      body: JSON.stringify({ query, slug }),
     })
   },
   submit(slug: string, submission: RecommendationSubmission) {

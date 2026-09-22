@@ -352,9 +352,12 @@ http.route({ path: '/api/ai/suggestions', method: 'POST', handler: httpAction(as
 }) })
 
 http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (ctx, request) => {
-  const input = await request.json() as { query?: string; destination?: string }
+  const input = await request.json() as { query?: string; slug?: string }
   try {
-    const result = await ctx.runAction(internal.places.search, { query: input.query ?? '', destination: input.destination ?? '' })
+    const { destination } = await ctx.runMutation(internal.requests.preparePublicPlaceSearch, {
+      slug: input.slug ?? '', rateLimitKey: await requestBucket(request),
+    })
+    const result = await ctx.runAction(internal.places.search, { query: input.query ?? '', destination })
     return json(result)
   } catch {
     return json({ message: 'Place search is temporarily unavailable.' }, 503)
