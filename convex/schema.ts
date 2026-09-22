@@ -26,6 +26,10 @@ export default defineSchema({
     destination: v.string(),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),
+    askRequestCount: v.number(),
+    openAskRequestCount: v.number(),
+    recommendationCount: v.number(),
+    pendingRecommendationCount: v.number(),
     updatedAt: v.number(),
   }).index('by_ownerAuthUserId_and_localID', ['ownerAuthUserId', 'localID']),
 
@@ -37,6 +41,8 @@ export default defineSchema({
     destination: v.string(),
     journeyTitle: v.optional(v.string()),
     status: v.union(v.literal('open'), v.literal('closed')),
+    recommendationCount: v.number(),
+    pendingRecommendationCount: v.number(),
     createdAt: v.number(),
     closedAt: v.optional(v.number()),
   })
