@@ -24,3 +24,7 @@ npm run dev
 - The moderation queue is paginated independently for open reports and active takedowns. `GET /api/admin/reports?limit=25&openCursor=…&takedownCursor=…` returns `openReports` and `activeTakedowns` page envelopes; continue each queue with its own `continueCursor` until `isDone` is true. `limit` is capped at 100.
 
 The prior experiment is preserved locally in `legacy-reference/` and intentionally excluded from Git.
+
+## Convex rollout note
+
+The supported production path is a fresh Convex deployment. If this code is instead deployed over an earlier Vazhi Ask-the-Way schema, the first authenticated owner request performs a self-service, idempotent claim of rows whose **verified current custom-JWT token identifier** matches the legacy owner field. It backfills Better Auth owner IDs and counters before owner reads/writes proceed. Do not remove the transitional legacy fields or indexes until every active legacy owner has signed in and the deployment’s migration audit is complete.

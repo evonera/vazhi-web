@@ -84,9 +84,9 @@ export const askStatsForJourney = query({
       .unique()
     if (!journey) return { openRequestCount: 0, recommendationCount: 0, pendingCount: 0 }
     return {
-      openRequestCount: journey.openAskRequestCount,
-      recommendationCount: journey.recommendationCount,
-      pendingCount: journey.pendingRecommendationCount,
+      openRequestCount: journey.openAskRequestCount ?? 0,
+      recommendationCount: journey.recommendationCount ?? 0,
+      pendingCount: journey.pendingRecommendationCount ?? 0,
     }
   },
 })
@@ -101,7 +101,7 @@ export const setStatus = mutation({
     if (request.status !== args.status) {
       const journey = await ctx.db.get(request.journeyId)
       if (journey) await ctx.db.patch(journey._id, {
-        openAskRequestCount: Math.max(0, journey.openAskRequestCount + (args.status === 'open' ? 1 : -1)),
+        openAskRequestCount: Math.max(0, (journey.openAskRequestCount ?? 0) + (args.status === 'open' ? 1 : -1)),
         updatedAt: Date.now(),
       })
     }
@@ -141,8 +141,8 @@ export const setRecommendationStatus = mutation({
     })
     if (recommendation.status === 'pending' && args.status !== 'pending') {
       const journey = await ctx.db.get(request.journeyId)
-      await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, request.pendingRecommendationCount - 1) })
-      if (journey) await ctx.db.patch(journey._id, { pendingRecommendationCount: Math.max(0, journey.pendingRecommendationCount - 1), updatedAt: Date.now() })
+      await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, (request.pendingRecommendationCount ?? 0) - 1) })
+      if (journey) await ctx.db.patch(journey._id, { pendingRecommendationCount: Math.max(0, (journey.pendingRecommendationCount ?? 0) - 1), updatedAt: Date.now() })
     }
     return null
   },
@@ -197,8 +197,8 @@ export const submitPublic = internalMutation({
     if (args.place.latitude < -90 || args.place.latitude > 90 || args.place.longitude < -180 || args.place.longitude > 180) throw new ConvexError('Choose a valid map location.')
     await ctx.db.insert('recommendations', { askRequestId: request._id, anonymous: args.anonymous, contributorName: args.anonymous ? undefined : args.contributorName?.trim(), contributorHandle: args.anonymous ? undefined : args.contributorHandle?.trim(), category: args.category, place: args.place, note: args.note.trim(), referenceURL: args.referenceURL, status: 'pending', submittedAt: Date.now() })
     const journey = await ctx.db.get(request.journeyId)
-    await ctx.db.patch(request._id, { recommendationCount: request.recommendationCount + 1, pendingRecommendationCount: request.pendingRecommendationCount + 1 })
-    if (journey) await ctx.db.patch(journey._id, { recommendationCount: journey.recommendationCount + 1, pendingRecommendationCount: journey.pendingRecommendationCount + 1, updatedAt: Date.now() })
+    await ctx.db.patch(request._id, { recommendationCount: (request.recommendationCount ?? 0) + 1, pendingRecommendationCount: (request.pendingRecommendationCount ?? 0) + 1 })
+    if (journey) await ctx.db.patch(journey._id, { recommendationCount: (journey.recommendationCount ?? 0) + 1, pendingRecommendationCount: (journey.pendingRecommendationCount ?? 0) + 1, updatedAt: Date.now() })
     return null
   },
 })
@@ -271,8 +271,8 @@ export const setRecommendationStatusForOwner = internalMutation({
     })
     if (recommendation.status === 'pending' && args.status !== 'pending') {
       const journey = await ctx.db.get(request.journeyId)
-      await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, request.pendingRecommendationCount - 1) })
-      if (journey) await ctx.db.patch(journey._id, { pendingRecommendationCount: Math.max(0, journey.pendingRecommendationCount - 1), updatedAt: Date.now() })
+      await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, (request.pendingRecommendationCount ?? 0) - 1) })
+      if (journey) await ctx.db.patch(journey._id, { pendingRecommendationCount: Math.max(0, (journey.pendingRecommendationCount ?? 0) - 1), updatedAt: Date.now() })
     }
     return null
   },
@@ -296,7 +296,7 @@ export const listForOwner = internalQuery({
         journeyTitle: request.journeyTitle,
         status: request.status,
         createdAt: request.createdAt,
-        recommendationCount: request.recommendationCount,
+        recommendationCount: request.recommendationCount ?? 0,
       })
     }))
   },
@@ -311,7 +311,7 @@ export const setRequestStatusForOwner = internalMutation({
     if (request.status !== args.status) {
       const journey = await ctx.db.get(request.journeyId)
       if (journey) await ctx.db.patch(journey._id, {
-        openAskRequestCount: Math.max(0, journey.openAskRequestCount + (args.status === 'open' ? 1 : -1)),
+        openAskRequestCount: Math.max(0, (journey.openAskRequestCount ?? 0) + (args.status === 'open' ? 1 : -1)),
         updatedAt: Date.now(),
       })
     }

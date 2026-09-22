@@ -27,6 +27,17 @@ async function requestBucket(request: Request) {
 
 async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
   const user = await authComponent.getAuthUser(ctx)
+  // A one-time, self-service bridge preserves rows written before owner IDs
+  // moved from the custom-JWT token identifier to Better Auth user IDs. The
+  // legacy value comes from Convex's verified current identity—not a client
+  // supplied header/body—and the migration is idempotent.
+  const legacyTokenIdentifier = (await ctx.auth.getUserIdentity())?.tokenIdentifier
+  if (legacyTokenIdentifier) {
+    await ctx.runMutation(internal.migrations.claimLegacyAskData, {
+      ownerAuthUserId: String(user._id),
+      legacyTokenIdentifier,
+    })
+  }
   return String(user._id)
 }
 
