@@ -4,9 +4,13 @@ const baseURL = import.meta.env.VITE_CONVEX_HTTP_URL
 
 export const authClient = createAuthClient({ baseURL })
 
-export async function startAppleSignIn() {
+export function ownerSignInReturnPath(requested: string | null): '/requests' | '/pro' {
+  return requested === '/pro' ? '/pro' : '/requests'
+}
+
+export async function startAppleSignIn(returnPath: '/requests' | '/pro' = '/requests') {
   if (!baseURL) throw new Error('Apple sign-in is not configured for this environment.')
-  await authClient.signIn.social({ provider: 'apple', callbackURL: `${window.location.origin}/requests` })
+  await authClient.signIn.social({ provider: 'apple', callbackURL: `${window.location.origin}${returnPath}` })
 }
 
 export async function getConvexAccessToken() {
