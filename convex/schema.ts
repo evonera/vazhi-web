@@ -126,6 +126,28 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index('by_ownerAuthUserId_and_localMomentId', ['ownerAuthUserId', 'localMomentId']),
 
+  // Privacy-safe observability for optional AI requests. This table contains
+  // no source text, coordinates, media, prompt, transcript, provider payload,
+  // or provider response; it is only a bounded account-level usage receipt.
+  aiUsageEvents: defineTable({
+    ownerAuthUserId: v.string(),
+    provider: v.string(),
+    model: v.string(),
+    outcome: v.union(v.literal('success'), v.literal('rejected'), v.literal('failed')),
+    createdAt: v.number(),
+  }).index('by_ownerAuthUserId_and_createdAt', ['ownerAuthUserId', 'createdAt']),
+
+  // An idempotency receipt for low-priority work. Arguments, route polylines,
+  // and source content belong in the work item/action, never in this log.
+  backgroundJobs: defineTable({
+    ownerAuthUserId: v.string(),
+    idempotencyKey: v.string(),
+    kind: v.literal('route_snapshot_refresh'),
+    state: v.union(v.literal('queued'), v.literal('completed'), v.literal('failed')),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  }).index('by_ownerAuthUserId_and_idempotencyKey', ['ownerAuthUserId', 'idempotencyKey']),
+
   // Profiles are opt-in. No Journey, Moment, email, Apple subject, or billing
   // metadata is ever a public profile field.
   profiles: defineTable({
