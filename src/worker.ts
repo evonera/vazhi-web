@@ -5,6 +5,7 @@ interface AssetFetcher {
 export interface Env {
   ASSETS: AssetFetcher
   CONVEX_HTTP_URL?: string
+  IOS_APP_STORE_URL?: string
 }
 
 type PublicAsk = { slug: string; prompt: string; destination: string }
@@ -30,6 +31,12 @@ async function requestMetadata(url: URL, env: Env) {
 const worker = {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url)
+    if (url.pathname === '/download' && request.method === 'GET') {
+      const userAgent = request.headers.get('user-agent') ?? ''
+      if (/iPhone|iPad|iPod/i.test(userAgent) && env.IOS_APP_STORE_URL?.startsWith('https://')) {
+        return Response.redirect(env.IOS_APP_STORE_URL, 302)
+      }
+    }
     if (url.pathname.match(/^\/og\/ask\/[^/]+$/)) {
       const slug = url.pathname.split('/').at(-1) ?? ''
       if (!env.CONVEX_HTTP_URL) return new Response('Not configured', { status: 503 })

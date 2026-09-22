@@ -9,3 +9,15 @@ test('a visitor can submit a named recommendation through a public request', asy
   await page.getByRole('button', { name: 'Add to their path' }).click()
   await expect(page.getByRole('heading', { name: 'That’s on their path.' })).toBeVisible()
 })
+
+test('the campaign and public form stay usable at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 })
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: /Capture places/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /Get Vazhi/i }).first()).toBeVisible()
+  await expect(page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).resolves.toBe(true)
+
+  await page.goto('/ask/demo-malaysia')
+  await expect(page.getByRole('heading', { name: /Going to Malaysia/i })).toBeVisible()
+  await expect(page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).resolves.toBe(true)
+})

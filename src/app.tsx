@@ -1,26 +1,13 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import {
-  categoryLabel,
-  type Place,
-  type PublicAskRequest,
-  recommendationCategories,
-  type RecommendationCategory,
-} from './lib/contracts'
+import { QRCodeSVG } from 'qrcode.react'
+import { categoryLabel, type Place, type PublicAskRequest, recommendationCategories, type RecommendationCategory } from './lib/contracts'
 import { publicAskAPI } from './lib/api'
 import { getConvexAccessToken, startAppleSignIn } from './lib/auth'
 
-const demoRequest: PublicAskRequest = {
-  slug: 'demo-malaysia',
-  prompt: 'Going to Malaysia in November — where should I go?',
-  destination: 'Malaysia',
-  journeyTitle: 'Malaysia in November',
-  status: 'open',
-}
+const demoRequest: PublicAskRequest = { slug: 'demo-malaysia', prompt: 'Going to Malaysia in November — where should I go?', destination: 'Malaysia', journeyTitle: 'Malaysia in November', status: 'open' }
+const downloadURL = typeof window === 'undefined' ? 'https://vazhi.app/download' : `${window.location.origin}/download`
 
-function currentSlug(): string | null {
-  const match = window.location.pathname.match(/^\/ask\/([^/]+)$/)
-  return match?.[1] ?? null
-}
+function currentSlug(): string | null { return window.location.pathname.match(/^\/ask\/([^/]+)$/)?.[1] ?? null }
 
 export function App() {
   const slug = currentSlug()
@@ -30,170 +17,60 @@ export function App() {
   if (window.location.pathname === '/report') return <LegalPage title="Report a link" />
   if (window.location.pathname === '/sign-in') return <SignInPage />
   if (window.location.pathname === '/requests') return <RequestsPage />
+  if (window.location.pathname === '/download') return <DownloadPage />
   return <LandingPage />
 }
 
-function LandingPage() {
-  return (
-    <main className="landing shell">
-      <p className="eyebrow">Vazhi · Ask the Way</p>
-      <h1>Capture places.<br />Ask your people.<br />Make the path.</h1>
-      <p className="lede">Vazhi turns trusted recommendations from your audience into a private, editable travel path.</p>
-      <a className="button" href="/ask/demo-malaysia">Try the Malaysia request</a>
-      <p className="fine-print">A story-link demo. No app download needed to recommend a place.</p>
-    </main>
-  )
-}
-
-function AskPage({ slug }: { slug: string }) {
-  const [request, setRequest] = useState<PublicAskRequest | null>(slug === 'demo-malaysia' ? demoRequest : null)
-  const [loading, setLoading] = useState(slug !== 'demo-malaysia')
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (slug === 'demo-malaysia') return
-    publicAskAPI.getRequest(slug)
-      .then(setRequest)
-      .catch((receivedError: Error) => setError(receivedError.message))
-      .finally(() => setLoading(false))
-  }, [slug])
-
-  if (loading) return <main className="shell centered"><p>Opening Vazhi request…</p></main>
-  if (error || !request) return <main className="shell centered"><h1>This request is unavailable.</h1><p>{error ?? 'Ask the owner for a new link.'}</p></main>
-  if (request.status === 'closed') return <main className="shell centered"><p className="eyebrow">Vazhi</p><h1>This request is closed.</h1><p>The owner has stopped accepting recommendations. Their path is still private.</p></main>
-
-  return <main className="ask shell"><AskHeader request={request} /><RecommendationForm request={request} demo={slug === 'demo-malaysia'} /></main>
-}
-
-function AskHeader({ request }: { request: PublicAskRequest }) {
-  return <header className="ask-header">
-    <a className="wordmark" href="/">Vazhi</a>
-    <p className="eyebrow">Ask the Way</p>
-    <h1>{request.prompt}</h1>
-    <p className="destination">For {request.destination}</p>
-    <p className="lede">Know somewhere worth their time? Add one place and tell them why.</p>
+function SiteHeader({ campaign = false }: { campaign?: boolean }) {
+  return <header className={`site-header ${campaign ? 'site-header--campaign' : ''}`}>
+    <a className="wordmark" href="/" aria-label="Vazhi home">vazhi<span aria-hidden="true">.</span></a>
+    <nav aria-label="Primary navigation"><a href="/#product">Product</a><a href="/#safety">Safety</a><a href="/privacy">Privacy</a><a href="mailto:hello@vazhi.app">Contact</a></nav>
+    <a className="header-download" href="/download">Get Vazhi <span aria-hidden="true">↗</span></a>
   </header>
 }
 
+function LandingPage() {
+  return <main className="campaign-page">
+    <section className="campaign-hero"><div className="campaign-frame"><SiteHeader campaign />
+      <p className="marquee" aria-hidden="true"><span>ASK YOUR PEOPLE • SAVE THE GOOD STUFF • MAKE THE PATH • CAPTURE THE MOMENT • </span><span>ASK YOUR PEOPLE • SAVE THE GOOD STUFF • MAKE THE PATH • CAPTURE THE MOMENT • </span></p>
+      <div className="hero-copy"><p className="hero-kicker">A travel journal for people with people</p><h1>Capture places.<br />Ask your people.<br />Make the path.</h1><p>Turn the places your friends swear by into a private, editable path you’ll actually want to follow.</p><div className="hero-actions"><a className="button button--light" href="/download">Get Vazhi for iPhone <span aria-hidden="true">↗</span></a><a className="button button--quiet" href="/ask/demo-malaysia">Try Ask the Way <span aria-hidden="true">↓</span></a></div><p className="platform-note">iPhone available soon · Android is coming soon</p></div><DeviceStack />
+    </div><a className="scroll-cue" href="#product">See how it works <span aria-hidden="true">↓</span></a></section>
+    <section id="product" className="product-intro content-band"><p className="section-label">NOT ANOTHER TRIP SPREADSHEET</p><h2>Three rituals for remembering where to go.</h2><p>Vazhi keeps the energetic part of travel planning social, then keeps the useful part quietly yours.</p></section>
+    <section className="feature-grid" aria-label="How Vazhi works"><FeatureCard number="01" name="Capture" title="Save the little things you notice." body="Shoot a photo, leave a voice note, or pin the café you want to remember. Capture works before you’re ready to plan." tone="lime" art="capture" /><FeatureCard number="02" name="Ask the Way" title="Ask people who get your taste." body="Make one beautiful link for your story. Friends add a place, a reason, and a little local context — no download needed." tone="pink" art="ask" /><FeatureCard number="03" name="Path" title="Turn good tips into a day that flows." body="Choose what matters, edit the stops, and keep a route that feels like yours — not a generic list of pins." tone="blue" art="path" /></section>
+    <section className="ask-demo" aria-labelledby="demo-title"><div className="ask-demo-copy"><p className="section-label">ASK THE WAY</p><h2 id="demo-title">One link. A much better trip.</h2><p>Post a question, get named recommendations, and decide exactly what makes it onto your Path. Anonymous is always a choice, never the default.</p><a className="text-cta" href="/ask/demo-malaysia">Open the Malaysia demo <span aria-hidden="true">→</span></a></div><div className="prompt-preview" aria-label="Example Ask the Way request"><p className="mini-brand">vazhi. <span>Ask the Way</span></p><p className="prompt-emoji" aria-hidden="true">✈︎</p><p className="prompt-question">Going to Malaysia in November — where should I go?</p><p className="prompt-destination">MALAYSIA</p><a href="/ask/demo-malaysia">Recommend a place <span aria-hidden="true">↗</span></a></div></section>
+    <section id="safety" className="safety-band"><p className="section-label">YOUR STUFF, YOUR CALL</p><h2>Private by default.<br />Social on purpose.</h2><div className="safety-points"><p><strong>Only your prompt is public.</strong> Your photos, voice notes, exact locations, and private journal stay yours.</p><p><strong>Names are the default.</strong> Friends can choose anonymous, but useful travel advice starts with trust.</p><p><strong>You close the link.</strong> Stop new recommendations any time. Your accepted Path remains private.</p></div><a className="text-cta" href="/privacy">Read our privacy promise <span aria-hidden="true">→</span></a></section>
+    <section className="download-band" aria-labelledby="download-title"><div><p className="section-label">TAKE THE WAY WITH YOU</p><h2 id="download-title">The next good place is already waiting.</h2><p>Scan for Vazhi on iPhone. Android is visibly on its way.</p><div className="download-actions"><a className="button button--dark" href="/download">Get Vazhi for iPhone <span aria-hidden="true">↗</span></a><span className="coming-soon">Android · coming soon</span></div></div><a className="qr-card" href="/download" aria-label="Open Vazhi download page"><QRCodeSVG value={downloadURL} size={154} bgColor="#f6f1eb" fgColor="#090909" level="M" includeMargin /><span>SCAN TO GET VAZHI</span></a></section><SiteFooter />
+  </main>
+}
+
+function DeviceStack() { return <div className="device-stack" aria-label="Vazhi app previews"><div className="device device--path" aria-hidden="true"><div className="device-status"><span>9:41</span><span>● ● ●</span></div><p className="device-eyebrow">MALAYSIA IN NOVEMBER</p><h3>Saturday<br />in Penang.</h3><div className="route-orbit"><span>1</span><i /><span>2</span><i /><span>3</span></div><div className="device-route"><strong>3 places</strong><small>5.2 km · 24 min</small></div></div><div className="device device--ask" aria-hidden="true"><div className="device-status"><span>9:41</span><span>● ● ●</span></div><p className="mini-brand">vazhi. <span>Ask the Way</span></p><p className="device-question">Where should I go in Malaysia?</p><p className="device-destination">MALAYSIA</p><div className="device-answer"><span>🍜</span><p><b>Priya</b><br />Village Park. Go early.</p></div><div className="device-answer device-answer--two"><span>🌿</span><p><b>Fara</b><br />Walk the old town at sunset.</p></div></div></div> }
+
+function FeatureCard({ number, name, title, body, tone, art }: { number: string; name: string; title: string; body: string; tone: string; art: string }) { return <article className={`feature-card feature-card--${tone}`}><p className="feature-index"><span>{number}</span>{name}</p><div className={`feature-art feature-art--${art}`} aria-hidden="true">{art === 'capture' && <><span className="photo-shape photo-shape--one">☕</span><span className="photo-shape photo-shape--two">📷</span><span className="scribble">sunset chai<br />in Pondy</span></>}{art === 'ask' && <><span className="bubble bubble--one">The laksa here is unreal.</span><span className="bubble bubble--two">Save this spot ↓</span><span className="question-mark">?</span></>}{art === 'path' && <><span className="route-dot route-dot--one">1</span><i className="route-line" /><span className="route-dot route-dot--two">2</span><i className="route-line route-line--two" /><span className="route-dot route-dot--three">3</span></>}</div><h3>{title}</h3><p>{body}</p></article> }
+
+function SiteFooter() { return <footer className="site-footer"><a className="wordmark" href="/">vazhi<span aria-hidden="true">.</span></a><nav aria-label="Footer navigation"><a href="/#product">Product</a><a href="/#safety">Safety</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/report">Report</a></nav><p>Made for the paths worth taking.</p></footer> }
+
+function AskPage({ slug }: { slug: string }) {
+  const [request, setRequest] = useState<PublicAskRequest | null>(slug === 'demo-malaysia' ? demoRequest : null); const [loading, setLoading] = useState(slug !== 'demo-malaysia'); const [error, setError] = useState<string | null>(null)
+  useEffect(() => { if (slug === 'demo-malaysia') return; publicAskAPI.getRequest(slug).then(setRequest).catch((receivedError: Error) => setError(receivedError.message)).finally(() => setLoading(false)) }, [slug])
+  if (loading) return <main className="route-page route-page--centered"><p>Opening Vazhi request…</p></main>
+  if (error || !request) return <main className="route-page route-page--centered"><h1>This request is unavailable.</h1><p>{error ?? 'Ask the owner for a new link.'}</p><a href="/" className="button">Meet Vazhi</a></main>
+  if (request.status === 'closed') return <main className="route-page route-page--centered"><p className="eyebrow">Vazhi · Ask the Way</p><h1>This request is closed.</h1><p>The owner has stopped accepting recommendations. Their path is still private.</p><a href="/" className="button">Meet Vazhi</a></main>
+  return <main className="ask-page"><div className="ask-page__gradient"><div className="ask-page__shell"><AskHeader request={request} /><RecommendationForm request={request} demo={slug === 'demo-malaysia'} /></div></div><SiteFooter /></main>
+}
+
+function AskHeader({ request }: { request: PublicAskRequest }) { return <header className="ask-header"><a className="wordmark" href="/">vazhi<span aria-hidden="true">.</span></a><p className="ask-label">Ask the Way</p><h1>{request.prompt}</h1><p className="destination">FOR {request.destination}</p><p>Know somewhere worth their time? Add one place and tell them why.</p></header> }
+
 function RecommendationForm({ request, demo }: { request: PublicAskRequest; demo: boolean }) {
-  const [anonymous, setAnonymous] = useState(false)
-  const [name, setName] = useState('')
-  const [handle, setHandle] = useState('')
-  const [category, setCategory] = useState<RecommendationCategory>('food')
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<Place[]>([])
-  const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
-  const [note, setNote] = useState('')
-  const [referenceURL, setReferenceURL] = useState('')
-  const [status, setStatus] = useState<'idle' | 'submitting' | 'success'>('idle')
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (query.trim().length < 3 || selectedPlace) {
-      setResults([])
-      return
-    }
-    const timeout = window.setTimeout(() => {
-      if (demo) {
-        setResults([{ provider: 'google', providerPlaceID: 'demo-village-park', name: 'Village Park Restaurant', address: 'Damansara Utama, Petaling Jaya, Malaysia', latitude: 3.136, longitude: 101.619, primaryType: 'restaurant' }])
-      } else {
-        publicAskAPI.searchPlaces(query, request.destination).then(setResults).catch(() => setResults([]))
-      }
-    }, 300)
-    return () => window.clearTimeout(timeout)
-  }, [demo, query, request.destination, selectedPlace])
-
-  const canSubmit = Boolean(selectedPlace && note.trim() && (anonymous || name.trim()) && status !== 'submitting')
-  const placeLabel = useMemo(() => selectedPlace ? [selectedPlace.name, selectedPlace.address].filter(Boolean).join(' · ') : '', [selectedPlace])
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!selectedPlace || !note.trim() || (!anonymous && !name.trim())) return
-    setError(null)
-    setStatus('submitting')
-    try {
-      if (!demo) {
-        await publicAskAPI.submit(request.slug, {
-          anonymous,
-          contributorName: anonymous ? undefined : name.trim(),
-          contributorHandle: handle.trim() || undefined,
-          category,
-          place: selectedPlace,
-          note: note.trim(),
-          referenceURL: referenceURL.trim() || undefined,
-        })
-      }
-      setStatus('success')
-    } catch (receivedError) {
-      setError(receivedError instanceof Error ? receivedError.message : 'Please try again.')
-      setStatus('idle')
-    }
-  }
-
-  if (status === 'success') return <section className="success" aria-live="polite"><p className="eyebrow">Sent</p><h2>That’s on their path.</h2><p>Your recommendation stays private to the trip owner until they choose what to use.</p><a className="text-link" href="/">Make your own Vazhi request</a></section>
-
-  return <form className="recommendation-form" onSubmit={submit}>
-    <fieldset><legend>Who are you?</legend>
-      <label className="checkbox"><input type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} /> Submit anonymously</label>
-      {!anonymous && <label>Your first name<input required maxLength={40} autoComplete="given-name" value={name} onChange={(event) => setName(event.target.value)} /></label>}
-      <label>Instagram handle <span className="optional">optional</span><input maxLength={50} placeholder="@yourhandle" value={handle} onChange={(event) => setHandle(event.target.value)} /></label>
-    </fieldset>
-    <fieldset><legend>What should they know?</legend>
-      <label>Category<select value={category} onChange={(event) => setCategory(event.target.value as RecommendationCategory)}>{recommendationCategories.map((item) => <option key={item} value={item}>{categoryLabel[item]}</option>)}</select></label>
-      <label>Find a place<input required value={selectedPlace ? placeLabel : query} placeholder={`Search in ${request.destination}`} onChange={(event) => { setSelectedPlace(null); setQuery(event.target.value) }} /></label>
-      {results.length > 0 && <div className="results" role="listbox" aria-label="Place results">{results.map((place) => <button key={`${place.provider}-${place.providerPlaceID ?? place.name}`} type="button" onClick={() => { setSelectedPlace(place); setResults([]) }}><strong>{place.name}</strong><span>{place.address}</span></button>)}</div>}
-      {selectedPlace && <button type="button" className="clear-place" onClick={() => { setSelectedPlace(null); setQuery('') }}>Change selected place</button>}
-      <label>Or drop a pin <span className="optional">latitude, longitude</span><input placeholder="3.1390, 101.6869" onBlur={(event) => {
-        if (selectedPlace || !event.target.value.trim()) return
-        const [latitude, longitude] = event.target.value.split(',').map(Number)
-        if (Number.isFinite(latitude) && Number.isFinite(longitude)) setSelectedPlace({ provider: 'manual', name: 'Pinned place', latitude, longitude })
-      }} /></label>
-      <label>Why is it worth it?<textarea required maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="What should they order, notice, or avoid?" /></label>
-      <label>Reference link <span className="optional">optional, https only</span><input type="url" placeholder="https://…" value={referenceURL} onChange={(event) => setReferenceURL(event.target.value)} /></label>
-    </fieldset>
-    {error && <p className="form-error" role="alert">{error}</p>}
-    <button className="button" disabled={!canSubmit} type="submit">{status === 'submitting' ? 'Sending…' : 'Add to their path'}</button>
-    <p className="fine-print">Recommendations are private to this trip owner. Do not submit someone’s home or sensitive location.</p>
-  </form>
+  const [anonymous, setAnonymous] = useState(false); const [name, setName] = useState(''); const [handle, setHandle] = useState(''); const [category, setCategory] = useState<RecommendationCategory>('food'); const [query, setQuery] = useState(''); const [results, setResults] = useState<Place[]>([]); const [selectedPlace, setSelectedPlace] = useState<Place | null>(null); const [note, setNote] = useState(''); const [referenceURL, setReferenceURL] = useState(''); const [status, setStatus] = useState<'idle' | 'submitting' | 'success'>('idle'); const [error, setError] = useState<string | null>(null)
+  useEffect(() => { if (query.trim().length < 3 || selectedPlace) { setResults([]); return }; const timeout = window.setTimeout(() => { if (demo) setResults([{ provider: 'google', providerPlaceID: 'demo-village-park', name: 'Village Park Restaurant', address: 'Damansara Utama, Petaling Jaya, Malaysia', latitude: 3.136, longitude: 101.619, primaryType: 'restaurant' }]); else publicAskAPI.searchPlaces(query, request.destination).then(setResults).catch(() => setResults([])) }, 300); return () => window.clearTimeout(timeout) }, [demo, query, request.destination, selectedPlace])
+  const canSubmit = Boolean(selectedPlace && note.trim() && (anonymous || name.trim()) && status !== 'submitting'); const placeLabel = useMemo(() => selectedPlace ? [selectedPlace.name, selectedPlace.address].filter(Boolean).join(' · ') : '', [selectedPlace])
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!selectedPlace || !note.trim() || (!anonymous && !name.trim())) return; setError(null); setStatus('submitting'); try { if (!demo) await publicAskAPI.submit(request.slug, { anonymous, contributorName: anonymous ? undefined : name.trim(), contributorHandle: handle.trim() || undefined, category, place: selectedPlace, note: note.trim(), referenceURL: referenceURL.trim() || undefined }); setStatus('success') } catch (receivedError) { setError(receivedError instanceof Error ? receivedError.message : 'Please try again.'); setStatus('idle') } }
+  if (status === 'success') return <section className="success-card" aria-live="polite"><p className="success-mark" aria-hidden="true">✓</p><p className="ask-label">SENT</p><h2>That’s on their path.</h2><p>Your recommendation stays private to the trip owner until they choose what to use.</p><a className="button" href="/">Make your own Vazhi request <span aria-hidden="true">↗</span></a></section>
+  return <form className="recommendation-card" onSubmit={submit}><div className="recommendation-card__title"><span aria-hidden="true">✦</span><div><p className="ask-label">YOUR TIP</p><h2>Add a place to their path.</h2></div></div><fieldset><legend>Who are you?</legend><label className="checkbox"><input type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} /> <span>Submit anonymously</span></label>{!anonymous && <label>Your first name<input required maxLength={40} autoComplete="given-name" value={name} onChange={(event) => setName(event.target.value)} /></label>}<label>Instagram handle <span className="optional">optional</span><input maxLength={50} placeholder="@yourhandle" value={handle} onChange={(event) => setHandle(event.target.value)} /></label></fieldset><fieldset><legend>The good stuff</legend><label>Category<select value={category} onChange={(event) => setCategory(event.target.value as RecommendationCategory)}>{recommendationCategories.map((item) => <option key={item} value={item}>{categoryLabel[item]}</option>)}</select></label><label>Find a place<input required value={selectedPlace ? placeLabel : query} placeholder={`Search in ${request.destination}`} onChange={(event) => { setSelectedPlace(null); setQuery(event.target.value) }} /></label>{results.length > 0 && <div className="results" role="listbox" aria-label="Place results">{results.map((place) => <button key={`${place.provider}-${place.providerPlaceID ?? place.name}`} type="button" onClick={() => { setSelectedPlace(place); setResults([]) }}><strong>{place.name}</strong><span>{place.address}</span></button>)}</div>}{selectedPlace && <button type="button" className="clear-place" onClick={() => { setSelectedPlace(null); setQuery('') }}>Change selected place</button>}<details className="pin-fallback"><summary>Can’t find it? Drop a map pin instead.</summary><label>Pin coordinates <span className="optional">latitude, longitude</span><input placeholder="3.1390, 101.6869" onBlur={(event) => { if (selectedPlace || !event.target.value.trim()) return; const [latitude, longitude] = event.target.value.split(',').map(Number); if (Number.isFinite(latitude) && Number.isFinite(longitude)) setSelectedPlace({ provider: 'manual', name: 'Pinned place', latitude, longitude }) }} /></label></details><label>Why is it worth it?<textarea required maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="What should they order, notice, or avoid?" /></label><label>Reference link <span className="optional">optional, https only</span><input type="url" placeholder="https://…" value={referenceURL} onChange={(event) => setReferenceURL(event.target.value)} /></label></fieldset>{error && <p className="form-error" role="alert">{error}</p>}<button className="button button--submit" disabled={!canSubmit} type="submit">{status === 'submitting' ? 'Sending…' : 'Add to their path'} <span aria-hidden="true">↗</span></button><p className="fine-print">Private to this trip owner. Do not submit someone’s home or sensitive location.</p></form>
 }
 
-function SignInPage() {
-  const [error, setError] = useState<string | null>(null)
-  return <main className="shell centered"><p className="eyebrow">Owner access</p><h1>Sign in on Vazhi.</h1><p>Use Apple to manage links you created. Audience members never need an account.</p><button className="button" onClick={() => startAppleSignIn().catch((reason: Error) => setError(reason.message))}>Continue with Apple</button>{error && <p className="form-error" role="alert">{error}</p>}</main>
-}
-
+function DownloadPage() { return <main className="download-page"><SiteHeader /><section><p className="section-label">VAZHI ON THE WAY</p><h1>Vazhi for iPhone is almost here.</h1><p>We’ll make this page open the App Store as soon as Vazhi is live. Until then, the complete Ask the Way experience works in your browser.</p><a className="button" href="/ask/demo-malaysia">Try the public demo <span aria-hidden="true">↗</span></a><p className="platform-note">Android · coming soon</p></section><SiteFooter /></main> }
+function SignInPage() { const [error, setError] = useState<string | null>(null); return <main className="route-page route-page--centered"><p className="eyebrow">Owner access</p><h1>Sign in on Vazhi.</h1><p>Use Apple to manage links you created. Audience members never need an account.</p><button className="button" onClick={() => startAppleSignIn().catch((reason: Error) => setError(reason.message))}>Continue with Apple</button>{error && <p className="form-error" role="alert">{error}</p>}</main> }
 type OwnerRequest = { id: string; slug: string; prompt: string; destination: string; status: 'open' | 'closed'; recommendationCount: number }
-
-function RequestsPage() {
-  const [requests, setRequests] = useState<OwnerRequest[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  async function load() {
-    try {
-      const token = await getConvexAccessToken()
-      const base = import.meta.env.VITE_CONVEX_HTTP_URL as string
-      const response = await fetch(`${base}/api/owner/ask-requests`, { headers: { Authorization: `Bearer ${token}` } })
-      if (!response.ok) throw new Error('Your requests are unavailable.')
-      setRequests(await response.json() as OwnerRequest[])
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Sign in to view your requests.')
-    } finally { setLoading(false) }
-  }
-
-  useEffect(() => { void load() }, [])
-  async function closeRequest(requestID: string) {
-    try {
-      const token = await getConvexAccessToken()
-      const base = import.meta.env.VITE_CONVEX_HTTP_URL as string
-      const response = await fetch(`${base}/api/owner/ask-requests`, { method: 'PATCH', headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ requestID, status: 'closed' }) })
-      if (!response.ok) throw new Error('The link could not be closed.')
-      setRequests((current) => current.map((item) => item.id === requestID ? { ...item, status: 'closed' } : item))
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The link could not be closed.') }
-  }
-
-  if (loading) return <main className="shell centered"><p>Loading your requests…</p></main>
-  if (error && requests.length === 0) return <main className="shell centered"><p className="eyebrow">Owner access</p><h1>Sign in to see your requests.</h1><p>{error}</p><a className="button" href="/sign-in">Continue with Apple</a></main>
-  return <main className="shell"><a className="wordmark" href="/">Vazhi</a><p className="eyebrow">Ask the Way</p><h1>Your requests</h1><p className="lede">Your iPhone remains the home for accepting recommendations and building a Path.</p>{error && <p className="form-error" role="alert">{error}</p>}<section className="request-list" aria-label="Your Ask the Way requests">{requests.length === 0 ? <p>No requests yet. Create one from a Journey in Vazhi.</p> : requests.map((request) => <article className="request-card" key={request.id}><p className="status"><span aria-hidden="true">{request.status === 'open' ? '●' : '○'}</span> {request.status}</p><h2>{request.destination}</h2><p>{request.prompt}</p><p className="fine-print">{request.recommendationCount} recommendation{request.recommendationCount === 1 ? '' : 's'} · <a href={`/ask/${request.slug}`}>Open public link</a></p>{request.status === 'open' && <button className="text-link" onClick={() => void closeRequest(request.id)}>Close link</button>}</article>)}</section></main>
-}
-function LegalPage({ title }: { title: string }) { return <main className="shell legal"><a className="wordmark" href="/">Vazhi</a><h1>{title}</h1><p>Vazhi is private by default. Shared Ask the Way links expose only the prompt and destination. Recommendations are visible only to the request owner.</p><p>Do not submit private addresses, sensitive locations, or material you do not have permission to share.</p></main> }
+function RequestsPage() { const [requests, setRequests] = useState<OwnerRequest[]>([]); const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(true); async function load() { try { const token = await getConvexAccessToken(); const base = import.meta.env.VITE_CONVEX_HTTP_URL as string; const response = await fetch(`${base}/api/owner/ask-requests`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error('Your requests are unavailable.'); setRequests(await response.json() as OwnerRequest[]) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Sign in to view your requests.') } finally { setLoading(false) } }; useEffect(() => { void load() }, []); async function closeRequest(requestID: string) { try { const token = await getConvexAccessToken(); const base = import.meta.env.VITE_CONVEX_HTTP_URL as string; const response = await fetch(`${base}/api/owner/ask-requests`, { method: 'PATCH', headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ requestID, status: 'closed' }) }); if (!response.ok) throw new Error('The link could not be closed.'); setRequests((current) => current.map((item) => item.id === requestID ? { ...item, status: 'closed' } : item)) } catch (reason) { setError(reason instanceof Error ? reason.message : 'The link could not be closed.') } }; if (loading) return <main className="route-page route-page--centered"><p>Loading your requests…</p></main>; if (error && requests.length === 0) return <main className="route-page route-page--centered"><p className="eyebrow">Owner access</p><h1>Sign in to see your requests.</h1><p>{error}</p><a className="button" href="/sign-in">Continue with Apple</a></main>; return <main className="dashboard-page"><SiteHeader /><div className="dashboard-page__shell"><p className="eyebrow">Ask the Way</p><h1>Your requests</h1><p className="lede">Your iPhone remains the home for accepting recommendations and building a Path.</p>{error && <p className="form-error" role="alert">{error}</p>}<section className="request-list" aria-label="Your Ask the Way requests">{requests.length === 0 ? <p>No requests yet. Create one from a Journey in Vazhi.</p> : requests.map((request) => <article className="request-card" key={request.id}><p className="status"><span aria-hidden="true">{request.status === 'open' ? '●' : '○'}</span> {request.status}</p><h2>{request.destination}</h2><p>{request.prompt}</p><p className="fine-print">{request.recommendationCount} recommendation{request.recommendationCount === 1 ? '' : 's'} · <a href={`/ask/${request.slug}`}>Open public link</a></p>{request.status === 'open' && <button className="text-link" onClick={() => void closeRequest(request.id)}>Close link</button>}</article>)}</section></div><SiteFooter /></main> }
+function LegalPage({ title }: { title: string }) { return <main className="legal-page"><SiteHeader /><section><p className="section-label">VAZHI TRUST</p><h1>{title}</h1><p>Vazhi is private by default. Shared Ask the Way links expose only the prompt and destination. Recommendations are visible only to the request owner.</p><p>Do not submit private addresses, sensitive locations, or material you do not have permission to share.</p></section><SiteFooter /></main> }
