@@ -17,7 +17,8 @@ npm run dev
 ## Security boundary
 
 - Browser code receives only `VITE_*` public origins.
-- Google Places, Turnstile verification, Better Auth, and rate-limit salts are server-only Convex environment variables.
+- Google Places, Turnstile verification, Better Auth, cloud-AI provider keys, and rate-limit salts are server-only Convex environment variables.
+- Optional cloud highlights are authenticated and per-request consented. The server receives only selected text notes and place names, validates structured cited-source output, and records provider/model/outcome receipts without storing prompts or responses.
 - Public requests never reveal private Vazhi Moments, media, transcripts, or exact owner locations.
 - `MODERATION_API_TOKEN` protects the operator-only `/api/admin/reports` queue. Use it only from a trusted terminal/workflow; never put it in `VITE_*`, a web page, or the iOS app. Decisions append audit records and takedowns immediately hide the guide.
 - The moderation queue is paginated independently for open reports and active takedowns. `GET /api/admin/reports?limit=25&openCursor=…&takedownCursor=…` returns `openReports` and `activeTakedowns` page envelopes; continue each queue with its own `continueCursor` until `isDone` is true. `limit` is capped at 100.

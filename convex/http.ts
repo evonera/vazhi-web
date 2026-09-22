@@ -287,6 +287,37 @@ http.route({ path: '/api/owner/recommendations', method: 'PATCH', handler: httpA
   }
 }) })
 
+// This is intentionally separate from public recommendation endpoints. It
+// requires the owner's custom-JWT session and forwards only the text fields
+// the native client selected in its per-request consent sheet.
+http.route({ path: '/api/ai/suggestions', method: 'POST', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const input = await request.json() as Record<string, unknown>
+    const moments = Array.isArray(input.moments) ? input.moments : []
+    const result = await ctx.runAction(internal.ai.generateSuggestions, {
+      ownerAuthUserId,
+      journeyTitle: typeof input.journeyTitle === 'string' ? input.journeyTitle : '',
+      journeySummary: typeof input.journeySummary === 'string' ? input.journeySummary : '',
+      moments: moments.map((entry) => {
+        const moment = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        return {
+          id: typeof moment.id === 'string' ? moment.id : '',
+          capturedAt: typeof moment.capturedAt === 'number' ? moment.capturedAt : 0,
+          note: typeof moment.note === 'string' ? moment.note : '',
+          placeName: typeof moment.placeName === 'string' ? moment.placeName : undefined,
+          locality: typeof moment.locality === 'string' ? moment.locality : undefined,
+        }
+      }),
+    })
+    return json(result)
+  } catch {
+    // Avoid logging or reflecting user-selected private text. The native app
+    // keeps the original Moment untouched and presents this generic outcome.
+    return json({ message: 'Cloud intelligence is temporarily unavailable. Your journal was not changed.' }, 503)
+  }
+}) })
+
 http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (ctx, request) => {
   const input = await request.json() as { query?: string; destination?: string }
   try {
@@ -325,6 +356,25 @@ http.route({ path: '/api/owner/routes', method: 'POST', handler: httpAction(asyn
     return json(await ctx.runAction(internal.routes.compute, { stops, travelMode }))
   } catch {
     return json({ message: 'This route is unavailable. You can still edit your Path.' }, 400)
+  }
+}) })
+
+// Low-priority, post-edit refresh only. Never use this queue for route
+// creation, map search, or anything that needs an immediate response.
+http.route({ path: '/api/owner/routes/refresh', method: 'POST', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const input = await request.json() as { requestID?: string; idempotencyKey?: string; stops?: Array<{ latitude?: number; longitude?: number }>; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' | 'TRANSIT' }
+    await ctx.runQuery(internal.requests.assertRequestOwner, { ownerAuthUserId, requestId: input.requestID ?? '' } as never)
+    const stops = (input.stops ?? []).flatMap((stop) => typeof stop.latitude === 'number' && typeof stop.longitude === 'number' ? [{ latitude: stop.latitude, longitude: stop.longitude }] : [])
+    if (stops.length < 2 || stops.length > 25 || !input.idempotencyKey || input.idempotencyKey.length > 128) {
+      return json({ message: 'That refresh request is invalid.' }, 400)
+    }
+    return json(await ctx.runMutation(internal.background.enqueueRouteSnapshotRefresh, {
+      ownerAuthUserId, idempotencyKey: input.idempotencyKey, stops, travelMode: input.travelMode ?? 'DRIVE',
+    }))
+  } catch {
+    return json({ message: 'This route refresh is unavailable. You can still edit your Path.' }, 400)
   }
 }) })
 
