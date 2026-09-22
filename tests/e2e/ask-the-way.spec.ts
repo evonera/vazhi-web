@@ -21,3 +21,25 @@ test('the campaign and public form stay usable at 320px', async ({ page }) => {
   await expect(page.getByRole('heading', { name: /Going to Malaysia/i })).toBeVisible()
   await expect(page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).resolves.toBe(true)
 })
+
+test('closed and invalid links never expose a recommendation form', async ({ page }) => {
+  await page.goto('/ask/demo-malaysia-closed')
+  await expect(page.getByRole('heading', { name: 'This request is closed.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Add to their path/i })).toHaveCount(0)
+
+  await page.goto('/ask/not-a-real-request')
+  await expect(page.getByRole('heading', { name: 'This request is unavailable.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Add to their path/i })).toHaveCount(0)
+})
+
+test('desktop campaign navigation and the download fallback are keyboard reachable', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await page.keyboard.press('Tab')
+  await expect(page.locator(':focus')).toHaveAttribute('href', '/')
+  await expect(page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).resolves.toBe(true)
+
+  await page.goto('/download')
+  await expect(page.getByRole('heading', { name: /Vazhi for iPhone is almost here/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /Try the public demo/i })).toBeVisible()
+})

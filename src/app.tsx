@@ -5,7 +5,9 @@ import { publicAskAPI, publicGuideAPI } from './lib/api'
 import { getConvexAccessToken, startAppleSignIn } from './lib/auth'
 
 const demoRequest: PublicAskRequest = { slug: 'demo-malaysia', prompt: 'Going to Malaysia in November — where should I go?', destination: 'Malaysia', journeyTitle: 'Malaysia in November', status: 'open' }
-const downloadURL = typeof window === 'undefined' ? 'https://vazhi.app/download' : `${window.location.origin}/download`
+const closedDemoRequest: PublicAskRequest = { ...demoRequest, slug: 'demo-malaysia-closed', status: 'closed' }
+const demoRequests: Record<string, PublicAskRequest> = { [demoRequest.slug]: demoRequest, [closedDemoRequest.slug]: closedDemoRequest }
+const downloadURL = 'https://vazhi.app/download'
 
 function currentSlug(): string | null { return window.location.pathname.match(/^\/ask\/([^/]+)$/)?.[1] ?? null }
 function currentProfileRoute(): { handle: string; slug?: string } | null {
@@ -63,12 +65,13 @@ function FeatureCard({ number, name, title, body, tone, art }: { number: string;
 function SiteFooter() { return <footer className="site-footer"><a className="wordmark" href="/">vazhi<span aria-hidden="true">.</span></a><nav aria-label="Footer navigation"><a href="/#product">Product</a><a href="/#safety">Safety</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/report">Report</a></nav><p>Made for the paths worth taking.</p></footer> }
 
 function AskPage({ slug }: { slug: string }) {
-  const [request, setRequest] = useState<PublicAskRequest | null>(slug === 'demo-malaysia' ? demoRequest : null); const [loading, setLoading] = useState(slug !== 'demo-malaysia'); const [error, setError] = useState<string | null>(null)
-  useEffect(() => { if (slug === 'demo-malaysia') return; publicAskAPI.getRequest(slug).then(setRequest).catch((receivedError: Error) => setError(receivedError.message)).finally(() => setLoading(false)) }, [slug])
+  const demo = demoRequests[slug]
+  const [request, setRequest] = useState<PublicAskRequest | null>(demo ?? null); const [loading, setLoading] = useState(!demo); const [error, setError] = useState<string | null>(null)
+  useEffect(() => { if (demo) return; publicAskAPI.getRequest(slug).then(setRequest).catch((receivedError: Error) => setError(receivedError.message)).finally(() => setLoading(false)) }, [demo, slug])
   if (loading) return <main className="route-page route-page--centered"><p>Opening Vazhi request…</p></main>
   if (error || !request) return <main className="route-page route-page--centered"><h1>This request is unavailable.</h1><p>{error ?? 'Ask the owner for a new link.'}</p><a href="/" className="button">Meet Vazhi</a></main>
   if (request.status === 'closed') return <main className="route-page route-page--centered"><p className="eyebrow">Vazhi · Ask the Way</p><h1>This request is closed.</h1><p>The owner has stopped accepting recommendations. Their path is still private.</p><a href="/" className="button">Meet Vazhi</a></main>
-  return <main className="ask-page"><div className="ask-page__gradient"><div className="ask-page__shell"><AskHeader request={request} /><RecommendationForm request={request} demo={slug === 'demo-malaysia'} /></div></div><SiteFooter /></main>
+  return <main className="ask-page"><div className="ask-page__gradient"><div className="ask-page__shell"><AskHeader request={request} /><RecommendationForm request={request} demo={Boolean(demo)} /></div></div><SiteFooter /></main>
 }
 
 function AskHeader({ request }: { request: PublicAskRequest }) { return <header className="ask-header"><a className="wordmark" href="/">vazhi<span aria-hidden="true">.</span></a><p className="ask-label">Ask the Way</p><h1>{request.prompt}</h1><p className="destination">FOR {request.destination}</p><p>Know somewhere worth their time? Add one place and tell them why.</p></header> }
