@@ -259,16 +259,22 @@ export const listForOwner = internalQuery({
   args: { ownerAuthUserId: v.string() },
   handler: async (ctx, args) => {
     const requests = await ctx.db.query('askRequests').withIndex('by_ownerAuthUserId_and_createdAt', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId)).order('desc').take(50)
-    return requests.map((request) => toOwnerAskRequest({
-      id: String(request._id),
-      localJourneyID: request.localJourneyID,
-      slug: request.slug,
-      prompt: request.prompt,
-      destination: request.destination,
-      journeyTitle: request.journeyTitle,
-      status: request.status,
-      createdAt: request.createdAt,
-      recommendationCount: request.recommendationCount,
+    // New requests carry their local UUID directly. For the staged schema
+    // rollout only, recover it from a legacy request's Journey so old owner
+    // inboxes remain usable without making every normal refresh N+1.
+    return Promise.all(requests.map(async (request) => {
+      const localJourneyID = request.localJourneyID ?? (await ctx.db.get(request.journeyId))?.localID
+      return toOwnerAskRequest({
+        id: String(request._id),
+        localJourneyID,
+        slug: request.slug,
+        prompt: request.prompt,
+        destination: request.destination,
+        journeyTitle: request.journeyTitle,
+        status: request.status,
+        createdAt: request.createdAt,
+        recommendationCount: request.recommendationCount,
+      })
     }))
   },
 })

@@ -5,7 +5,7 @@
  */
 type AskRequestSource = {
   id: string
-  localJourneyID: string
+  localJourneyID?: string
   slug: string
   prompt: string
   destination: string
