@@ -385,9 +385,8 @@ http.route({ path: '/places/details', method: 'POST', handler: httpAction(async 
 http.route({ path: '/api/owner/routes', method: 'POST', handler: httpAction(async (ctx, request) => {
   try {
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
-    const input = await request.json() as { requestID?: string; stops?: Array<{ latitude?: number; longitude?: number }>; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' | 'TRANSIT' }
-    await ctx.runQuery(internal.requests.assertRequestOwner, { ownerAuthUserId, requestId: input.requestID ?? '' } as never)
-    const stops = (input.stops ?? []).flatMap((stop) => typeof stop.latitude === 'number' && typeof stop.longitude === 'number' ? [{ latitude: stop.latitude, longitude: stop.longitude }] : [])
+    const input = await request.json() as { pathID?: string; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' | 'TRANSIT' }
+    const stops = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId, pathId: input.pathID ?? '' } as never)
     const travelMode = input.travelMode ?? 'DRIVE'
     return json(await ctx.runAction(internal.routes.compute, { stops, travelMode }))
   } catch {
@@ -400,9 +399,8 @@ http.route({ path: '/api/owner/routes', method: 'POST', handler: httpAction(asyn
 http.route({ path: '/api/owner/routes/refresh', method: 'POST', handler: httpAction(async (ctx, request) => {
   try {
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
-    const input = await request.json() as { requestID?: string; idempotencyKey?: string; stops?: Array<{ latitude?: number; longitude?: number }>; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' | 'TRANSIT' }
-    await ctx.runQuery(internal.requests.assertRequestOwner, { ownerAuthUserId, requestId: input.requestID ?? '' } as never)
-    const stops = (input.stops ?? []).flatMap((stop) => typeof stop.latitude === 'number' && typeof stop.longitude === 'number' ? [{ latitude: stop.latitude, longitude: stop.longitude }] : [])
+    const input = await request.json() as { pathID?: string; idempotencyKey?: string; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' | 'TRANSIT' }
+    const stops = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId, pathId: input.pathID ?? '' } as never)
     if (stops.length < 2 || stops.length > 25 || !input.idempotencyKey || input.idempotencyKey.length > 128) {
       return json({ message: 'That refresh request is invalid.' }, 400)
     }

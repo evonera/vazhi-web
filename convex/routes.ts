@@ -1,7 +1,22 @@
 import { ConvexError, v } from 'convex/values'
-import { internalAction } from './_generated/server'
+import { internalAction, internalQuery } from './_generated/server'
 
 const waypoint = v.object({ latitude: v.number(), longitude: v.number() })
+
+/**
+ * Route coordinates are loaded from the owner's stored Path. An HTTP caller
+ * may choose a travel mode, but never arbitrary coordinates that could turn
+ * a paid Routes call into an open proxy.
+ */
+export const storedStopsForOwner = internalQuery({
+  args: { ownerAuthUserId: v.string(), pathId: v.id('paths') },
+  handler: async (ctx, args) => {
+    const path = await ctx.db.get(args.pathId)
+    if (!path || path.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Path not found.')
+    const stops = await ctx.db.query('pathStops').withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', path._id)).order('asc').take(26)
+    return stops.map((stop) => ({ latitude: stop.place.latitude, longitude: stop.place.longitude }))
+  },
+})
 
 /**
  * Server-only Google Routes adapter. Consumers treat the return value as a
