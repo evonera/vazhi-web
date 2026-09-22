@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import worker, { type Env } from '../src/worker'
+import { verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
 
 function environment(overrides: Partial<Env> = {}): Env {
   return {
@@ -59,6 +60,64 @@ describe('public metadata', () => {
       const response = await worker.fetch(new Request('https://vazhi.app/og/ask/missing'), environment({ CONVEX_HTTP_URL: 'https://vazhi.convex.site' }))
       expect(response.status).toBe(404)
       expect(response.headers.get('cache-control')).toBeNull()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
+describe('public write ingress', () => {
+  it('fails closed in an unconfigured production-like Worker before forwarding', async () => {
+    const response = await worker.fetch(new Request('https://vazhi.app/api/recommendations', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}),
+    }), environment({ CONVEX_HTTP_URL: 'https://vazhi.convex.site', VAZHI_ENVIRONMENT: 'preview' }))
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ message: 'Please complete the verification and try again.' })
+  })
+
+  it('forwards an explicitly-development write without a production secret', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input) => {
+      expect(String(input)).toBe('https://vazhi.convex.site/api/reports')
+      return new Response(JSON.stringify({ accepted: true }), { headers: { 'content-type': 'application/json' } })
+    }
+    try {
+      const response = await worker.fetch(new Request('https://vazhi.app/api/reports', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ listingSlug: 'guide', reason: 'spam' }),
+      }), environment({ CONVEX_HTTP_URL: 'https://vazhi.convex.site', VAZHI_ENVIRONMENT: 'development' }))
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ accepted: true })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('verifies Turnstile then signs production writes before forwarding them', async () => {
+    const originalFetch = globalThis.fetch
+    const body = JSON.stringify({ listingSlug: 'guide', reason: 'spam', turnstileToken: 'challenge-token' })
+    let calls = 0
+    globalThis.fetch = async (input, init) => {
+      calls += 1
+      if (String(input).startsWith('https://challenges.cloudflare.com/')) return new Response(JSON.stringify({ success: true }))
+      expect(String(input)).toBe('https://vazhi.convex.site/api/reports')
+      await expect(verifyEdgeIngressSignature({
+        rawBody: String(init?.body),
+        signatureHeader: new Headers(init?.headers).get('x-vazhi-edge-signature'),
+        signingSecret: 'edge-secret',
+      })).resolves.toBe(true)
+      return new Response(JSON.stringify({ accepted: true }), { headers: { 'content-type': 'application/json' } })
+    }
+    try {
+      const response = await worker.fetch(new Request('https://vazhi.app/api/reports', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body,
+      }), environment({
+        CONVEX_HTTP_URL: 'https://vazhi.convex.site',
+        VAZHI_ENVIRONMENT: 'preview',
+        TURNSTILE_SECRET_KEY: 'turnstile-secret',
+        EDGE_INGRESS_SIGNING_SECRET: 'edge-secret',
+      }))
+      expect(calls).toBe(2)
+      await expect(response.json()).resolves.toEqual({ accepted: true })
     } finally {
       globalThis.fetch = originalFetch
     }

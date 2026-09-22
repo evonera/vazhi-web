@@ -20,6 +20,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+// Public writes use the website origin so the Cloudflare Worker can verify
+// Turnstile and attach its server-only ingress signature. Reads intentionally
+// continue to use the Convex public projection endpoints.
+async function publicWrite<T>(path: '/api/recommendations' | '/api/reports', init: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    headers: { 'content-type': 'application/json', ...init.headers },
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    throw new Error(body?.message ?? 'Something went wrong. Please try again.')
+  }
+  return response.json() as Promise<T>
+}
+
 export const publicAskAPI = {
   getRequest(slug: string) {
     return request<PublicAskRequest>(`/api/ask?slug=${encodeURIComponent(slug)}`)
@@ -31,7 +46,7 @@ export const publicAskAPI = {
     })
   },
   submit(slug: string, submission: RecommendationSubmission) {
-    return request<{ accepted: true }>('/api/recommendations', {
+    return publicWrite<{ accepted: true }>('/api/recommendations', {
       method: 'POST',
       body: JSON.stringify({ slug, ...submission }),
     })
@@ -46,7 +61,7 @@ export const publicGuideAPI = {
     return request<PublicListing>(`/api/listing?handle=${encodeURIComponent(handle)}&slug=${encodeURIComponent(slug)}`)
   },
   reportListing(listingSlug: string, reason: string, detail?: string) {
-    return request<{ accepted: true }>('/api/reports', {
+    return publicWrite<{ accepted: true }>('/api/reports', {
       method: 'POST', body: JSON.stringify({ listingSlug, reason, detail }),
     })
   },

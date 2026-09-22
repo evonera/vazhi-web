@@ -5,7 +5,8 @@ import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
 import { parseRevenueCatWebhook, verifyRevenueCatWebhookSignature } from '../src/lib/revenuecatWebhook'
 import { identifiedWebPurchaseLink } from '../src/lib/webPurchaseLink'
-import { developmentIngressSalt, mayBypassTurnstile } from '../src/lib/publicIngress'
+import { developmentIngressSalt } from '../src/lib/publicIngress'
+import { verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
 
 const http = httpRouter()
 
@@ -45,19 +46,17 @@ async function requireOwnerAuthUserId(ctx: ActionCtx) {
   return String(user._id)
 }
 
-async function verifyTurnstile(token: string | undefined, remoteIP: string | null) {
-  const secret = process.env.TURNSTILE_SECRET_KEY
-  // Do not infer a production bypass from NODE_ENV: Convex does not promise
-  // that value. Missing Turnstile credentials are allowed only in named dev.
-  if (mayBypassTurnstile(process.env.VAZHI_ENVIRONMENT, secret)) return true
-  if (!secret) return false
-  if (!token) return false
-  const form = new FormData()
-  form.set('secret', secret)
-  form.set('response', token)
-  if (remoteIP) form.set('remoteip', remoteIP)
-  const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: form })
-  return (await response.json() as { success?: boolean }).success === true
+async function hasVerifiedPublicIngress(request: Request, rawBody: string) {
+  const signingSecret = process.env.EDGE_INGRESS_SIGNING_SECRET
+  // Production and preview must receive a signed write from the Worker. The
+  // development deployment is the only environment allowed to exercise a
+  // direct local request before edge secrets are provisioned.
+  if (!signingSecret) return process.env.VAZHI_ENVIRONMENT === 'development'
+  return verifyEdgeIngressSignature({
+    rawBody,
+    signatureHeader: request.headers.get('x-vazhi-edge-signature'),
+    signingSecret,
+  })
 }
 
 http.route({ path: '/api/ask', method: 'GET', handler: httpAction(async (ctx, request) => {
@@ -92,10 +91,10 @@ http.route({ path: '/og/ask', method: 'GET', handler: httpAction(async (ctx, req
 }) })
 
 http.route({ path: '/api/recommendations', method: 'POST', handler: httpAction(async (ctx, request) => {
-  const input = await request.json() as Record<string, unknown>
-  const validChallenge = await verifyTurnstile(typeof input.turnstileToken === 'string' ? input.turnstileToken : undefined, request.headers.get('cf-connecting-ip'))
-  if (!validChallenge) return json({ message: 'Please complete the verification and try again.' }, 400)
+  const rawBody = await request.text()
+  if (!await hasVerifiedPublicIngress(request, rawBody)) return json({ message: 'Please complete the verification and try again.' }, 400)
   try {
+    const input = JSON.parse(rawBody) as Record<string, unknown>
     await ctx.runMutation(internal.requests.submitPublic, {
       slug: typeof input.slug === 'string' ? input.slug : '',
       rateLimitKey: await requestBucket(request),
@@ -114,8 +113,10 @@ http.route({ path: '/api/recommendations', method: 'POST', handler: httpAction(a
 }) })
 
 http.route({ path: '/api/reports', method: 'POST', handler: httpAction(async (ctx, request) => {
-  const input = await request.json() as Record<string, unknown>
+  const rawBody = await request.text()
+  if (!await hasVerifiedPublicIngress(request, rawBody)) return json({ message: 'Please complete the verification and try again.' }, 400)
   try {
+    const input = JSON.parse(rawBody) as Record<string, unknown>
     await ctx.runMutation(internal.listings.reportPublicListing, {
       listingSlug: typeof input.listingSlug === 'string' ? input.listingSlug : '',
       reason: typeof input.reason === 'string' ? input.reason : '',
