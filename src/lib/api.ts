@@ -1,6 +1,7 @@
 import type { PlaceSearchResult, PublicAskRequest, PublicListing, PublicProfile, RecommendationSubmission } from './contracts'
+import { convexHTTPURL } from './convexConfig'
 
-const apiOrigin = import.meta.env.VITE_CONVEX_HTTP_URL?.replace(/\/$/, '')
+const apiOrigin = convexHTTPURL
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!apiOrigin) {

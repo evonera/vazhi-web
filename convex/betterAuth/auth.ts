@@ -8,14 +8,7 @@ import type { DataModel } from '../_generated/dataModel'
 import authConfig from '../auth.config'
 import schema from './schema'
 
-type BetterAuthComponent = Parameters<typeof createClient<DataModel, typeof schema>>[0]
-
-// Before the first successful deployment Convex generates `components` as an
-// untyped generic map. This narrow component-API assertion keeps the adapter
-// contract checked without disabling backend type checking during bootstrap.
-const betterAuthComponent = components.betterAuth as unknown as BetterAuthComponent
-
-export const authComponent = createClient<DataModel, typeof schema>(betterAuthComponent, {
+export const authComponent = createClient<DataModel, typeof schema>(components.betterAuth, {
   local: { schema },
 })
 
