@@ -3,6 +3,7 @@ import { internalAction, internalMutation } from './_generated/server'
 import { internal } from './_generated/api'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
+import { validatedSuggestions } from '../src/lib/aiValidation'
 
 const moment = v.object({
   id: v.string(),
@@ -15,53 +16,6 @@ const moment = v.object({
 const rateLimiter = new RateLimiter(components.rateLimiter, {
   cloudHighlights: { kind: 'token bucket', rate: 10, period: HOUR, capacity: 10 },
 })
-
-type SourceMoment = {
-  id: string
-  capturedAt: number
-  note: string
-  placeName?: string
-  locality?: string
-}
-
-type RawSuggestion = {
-  title?: unknown
-  tags?: unknown
-  summary?: unknown
-  friendTip?: unknown
-  confidence?: unknown
-  sourceMomentIDs?: unknown
-}
-
-function validatedSuggestions(value: unknown, sources: SourceMoment[], model: string) {
-  if (!value || typeof value !== 'object' || !Array.isArray((value as { suggestions?: unknown }).suggestions)) {
-    throw new ConvexError('Cloud intelligence returned an invalid response.')
-  }
-  const sourceIDs = new Set(sources.map((source) => source.id))
-  const rawSuggestions = (value as { suggestions: RawSuggestion[] }).suggestions
-  if (rawSuggestions.length > 3) throw new ConvexError('Cloud intelligence returned too many suggestions.')
-  return rawSuggestions.map((suggestion) => {
-    if (typeof suggestion.title !== 'string' || !suggestion.title.trim() ||
-      typeof suggestion.summary !== 'string' || !suggestion.summary.trim() ||
-      typeof suggestion.friendTip !== 'string' || !
-      Array.isArray(suggestion.tags) || !suggestion.tags.every((tag) => typeof tag === 'string') ||
-      typeof suggestion.confidence !== 'number' || suggestion.confidence < 0 || suggestion.confidence > 1 ||
-      !Array.isArray(suggestion.sourceMomentIDs) || suggestion.sourceMomentIDs.length === 0 ||
-      suggestion.sourceMomentIDs.length > sources.length ||
-      !suggestion.sourceMomentIDs.every((id) => typeof id === 'string' && sourceIDs.has(id))) {
-      throw new ConvexError('Cloud intelligence returned an invalid response.')
-    }
-    return {
-      title: suggestion.title.trim().slice(0, 120),
-      tags: suggestion.tags.map((tag) => tag.trim().slice(0, 32)).filter(Boolean).slice(0, 6),
-      summary: suggestion.summary.trim().slice(0, 600),
-      friendTip: suggestion.friendTip.trim().slice(0, 300),
-      confidence: suggestion.confidence,
-      sourceMomentIDs: [...new Set(suggestion.sourceMomentIDs)],
-      modelVersion: `cloud:${model}`,
-    }
-  })
-}
 
 export const reserveQuota = internalMutation({
   args: { ownerAuthUserId: v.string() },
