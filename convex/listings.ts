@@ -1,5 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, internalQuery } from './_generated/server'
+import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
+import { components } from './_generated/api'
 
 const visibility = v.union(v.literal('public'), v.literal('unlisted'))
 const stop = v.object({
@@ -11,6 +13,10 @@ const stop = v.object({
   latitude: v.optional(v.number()),
   longitude: v.optional(v.number()),
   isApproximateLocation: v.boolean(),
+})
+
+const reportLimiter = new RateLimiter(components.rateLimiter, {
+  publicListingReport: { kind: 'token bucket', rate: 3, period: HOUR, capacity: 3 },
 })
 
 function slug() {
@@ -45,8 +51,10 @@ function validatedStops(stops: Array<{
         notes: item.notes.trim().slice(0, 1_000),
         placeName: item.placeName?.trim().slice(0, 160) || undefined,
         locality: item.locality?.trim().slice(0, 120) || undefined,
-        latitude: item.latitude,
-        longitude: item.longitude,
+        // Coordinates tagged approximate are never trusted as client-side
+        // redactions: omit them entirely from the immutable public snapshot.
+        latitude: item.isApproximateLocation ? undefined : item.latitude,
+        longitude: item.isApproximateLocation ? undefined : item.longitude,
         isApproximateLocation: item.isApproximateLocation,
       }
     })
@@ -125,13 +133,13 @@ export const getPublicProfileByHandle = internalQuery({
     }
     if (!profile?.isPublic || !profile.handle) return null
     const listings = await ctx.db.query('publicItineraryListings')
-      .withIndex('by_ownerAuthUserId_and_status_and_updatedAt', (q) => q.eq('ownerAuthUserId', profile.ownerAuthUserId).eq('status', 'published'))
+      .withIndex('by_ownerAuthUserId_and_visibility_and_status_and_updatedAt', (q) => q.eq('ownerAuthUserId', profile.ownerAuthUserId).eq('visibility', 'public').eq('status', 'published'))
       .order('desc').take(50)
     return {
       handle: profile.handle,
       displayName: profile.displayName,
       bio: profile.bio,
-      listings: (await Promise.all(listings.filter((listing) => listing.visibility === 'public').map(async (listing) => {
+      listings: (await Promise.all(listings.map(async (listing) => {
         const version = listing.currentVersionId ? await ctx.db.get(listing.currentVersionId) : null
         if (!version) return null
         return { slug: listing.slug, title: version.title, subtitle: version.subtitle, stopCount: version.stops.length, updatedAt: listing.updatedAt }
@@ -173,13 +181,18 @@ export const getPublicListing = internalQuery({
 
 /** Generic report receipt avoids revealing whether a hidden guide exists. */
 export const reportPublicListing = internalMutation({
-  args: { listingSlug: v.string(), reason: v.string(), detail: v.optional(v.string()) },
+  args: { listingSlug: v.string(), reason: v.string(), detail: v.optional(v.string()), rateLimitKey: v.string() },
   handler: async (ctx, args) => {
     const reason = clean(args.reason, 120, 'Report reason')
     const listing = await ctx.db.query('publicItineraryListings').withIndex('by_slug', (q) => q.eq('slug', args.listingSlug)).unique()
     if (listing) {
+      const { ok } = await reportLimiter.limit(ctx, 'publicListingReport', { key: `${listing._id}:${args.rateLimitKey}` })
+      if (!ok) return null
+      const duplicate = await ctx.db.query('reports').withIndex('by_listingId_and_reportFingerprint', (q) => q.eq('listingId', listing._id).eq('reportFingerprint', args.rateLimitKey)).unique()
+      if (duplicate) return null
       await ctx.db.insert('reports', {
         targetType: 'listing', listingId: listing._id, listingSlug: listing.slug,
+        reportFingerprint: args.rateLimitKey,
         reason, detail: args.detail?.trim().slice(0, 1_000) || undefined,
         status: 'open', createdAt: Date.now(),
       })
