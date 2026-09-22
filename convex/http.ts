@@ -5,6 +5,7 @@ import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
 import { parseRevenueCatWebhook, verifyRevenueCatWebhookSignature } from '../src/lib/revenuecatWebhook'
 import { identifiedWebPurchaseLink } from '../src/lib/webPurchaseLink'
+import { developmentIngressSalt, mayBypassTurnstile } from '../src/lib/publicIngress'
 
 const http = httpRouter()
 
@@ -21,7 +22,7 @@ function escapeXML(value: string) {
 async function requestBucket(request: Request) {
   // Unknown deployments fail closed. A predictable local salt is acceptable
   // only for the explicitly marked development deployment.
-  const salt = process.env.RATE_LIMIT_SALT ?? (process.env.VAZHI_ENVIRONMENT === 'development' ? 'development-only' : undefined)
+  const salt = developmentIngressSalt(process.env.VAZHI_ENVIRONMENT, process.env.RATE_LIMIT_SALT)
   if (!salt) throw new Error('Public ingress is not configured.')
   const input = `${salt}:${request.headers.get('cf-connecting-ip') ?? 'unknown'}`
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
@@ -48,7 +49,8 @@ async function verifyTurnstile(token: string | undefined, remoteIP: string | nul
   const secret = process.env.TURNSTILE_SECRET_KEY
   // Do not infer a production bypass from NODE_ENV: Convex does not promise
   // that value. Missing Turnstile credentials are allowed only in named dev.
-  if (!secret) return process.env.VAZHI_ENVIRONMENT === 'development'
+  if (mayBypassTurnstile(process.env.VAZHI_ENVIRONMENT, secret)) return true
+  if (!secret) return false
   if (!token) return false
   const form = new FormData()
   form.set('secret', secret)
