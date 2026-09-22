@@ -1,5 +1,5 @@
 import { ConvexError, v } from 'convex/values'
-import { mutation, query } from './_generated/server'
+import { internalMutation, internalQuery, mutation, query } from './_generated/server'
 import { authComponent } from './betterAuth/auth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
@@ -76,6 +76,40 @@ export const saveMine = mutation({
         if (!existingAlias) {
           await ctx.db.insert('profileHandleAliases', { ownerAuthUserId, handle: current.handle, createdAt: Date.now() })
         }
+      }
+      await ctx.db.patch(current._id, profile)
+      return current._id
+    }
+    return ctx.db.insert('profiles', profile)
+  },
+})
+
+/** HTTP actions authenticate the session themselves and delegate only this
+ * opaque owner ID; callers can never select an arbitrary profile. */
+export const getForOwner = internalQuery({
+  args: { ownerAuthUserId: v.string() },
+  handler: async (ctx, args) => ctx.db.query('profiles').withIndex('by_ownerAuthUserId', (q) => q
+    .eq('ownerAuthUserId', args.ownerAuthUserId)).unique(),
+})
+
+export const saveForOwner = internalMutation({
+  args: { ownerAuthUserId: v.string(), ...editable },
+  handler: async (ctx, args) => {
+    if (args.displayName && args.displayName.trim().length > 40) throw new ConvexError('Display name is too long.')
+    if (args.bio && args.bio.trim().length > 160) throw new ConvexError('Bio is too long.')
+    const handle = normalizedHandle(args.handle)
+    const current = await ctx.db.query('profiles').withIndex('by_ownerAuthUserId', (q) => q
+      .eq('ownerAuthUserId', args.ownerAuthUserId)).unique()
+    if (handle && handle !== current?.handle) {
+      const claimed = await ctx.db.query('profiles').withIndex('by_handle', (q) => q.eq('handle', handle)).unique()
+      const aliased = await ctx.db.query('profileHandleAliases').withIndex('by_handle', (q) => q.eq('handle', handle)).unique()
+      if ((claimed && claimed.ownerAuthUserId !== args.ownerAuthUserId) || (aliased && aliased.ownerAuthUserId !== args.ownerAuthUserId)) throw new ConvexError('That handle is unavailable.')
+    }
+    const profile = { ownerAuthUserId: args.ownerAuthUserId, handle, displayName: args.displayName?.trim() || undefined, bio: args.bio?.trim() || undefined, isPublic: args.isPublic, updatedAt: Date.now() }
+    if (current) {
+      if (current.handle && current.handle !== handle) {
+        const alias = await ctx.db.query('profileHandleAliases').withIndex('by_handle', (q) => q.eq('handle', current.handle!)).unique()
+        if (!alias) await ctx.db.insert('profileHandleAliases', { ownerAuthUserId: args.ownerAuthUserId, handle: current.handle, createdAt: Date.now() })
       }
       await ctx.db.patch(current._id, profile)
       return current._id
