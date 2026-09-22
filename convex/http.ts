@@ -1,9 +1,8 @@
 import { httpRouter } from 'convex/server'
 import { httpAction } from './_generated/server'
+import type { ActionCtx } from './_generated/server'
 import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
-import type { GenericCtx } from '@convex-dev/better-auth/utils'
-import type { DataModel } from './_generated/dataModel'
 import { parseRevenueCatWebhook, verifyRevenueCatWebhookSignature } from '../src/lib/revenuecatWebhook'
 import { identifiedWebPurchaseLink } from '../src/lib/webPurchaseLink'
 
@@ -25,7 +24,7 @@ async function requestBucket(request: Request) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
+async function requireOwnerAuthUserId(ctx: ActionCtx) {
   const user = await authComponent.getAuthUser(ctx)
   // A one-time, self-service bridge preserves rows written before owner IDs
   // moved from the custom-JWT token identifier to Better Auth user IDs. The

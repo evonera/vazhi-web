@@ -7,3 +7,9 @@ dist/
 test-results/
 playwright-report/
 legacy-reference/
+.agents/
+.claude/
+AGENTS.md
+CLAUDE.md
+skills-lock.json
+convex/_generated/ai/

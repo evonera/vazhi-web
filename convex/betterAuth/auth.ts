@@ -8,7 +8,14 @@ import type { DataModel } from '../_generated/dataModel'
 import authConfig from '../auth.config'
 import schema from './schema'
 
-export const authComponent = createClient<DataModel, typeof schema>(components.betterAuth, {
+type BetterAuthComponent = Parameters<typeof createClient<DataModel, typeof schema>>[0]
+
+// Before the first successful deployment Convex generates `components` as an
+// untyped generic map. This narrow component-API assertion keeps the adapter
+// contract checked without disabling backend type checking during bootstrap.
+const betterAuthComponent = components.betterAuth as unknown as BetterAuthComponent
+
+export const authComponent = createClient<DataModel, typeof schema>(betterAuthComponent, {
   local: { schema },
 })
 
@@ -25,5 +32,5 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => betterAuth({
       appBundleIdentifier: process.env.APPLE_BUNDLE_ID,
     },
   },
-  plugins: [convex({ authConfig, jwks: process.env.BETTER_AUTH_JWKS })],
+  plugins: [convex({ authConfig })],
 } satisfies BetterAuthOptions)

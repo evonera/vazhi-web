@@ -14,7 +14,9 @@ npm run dev
 
 ## Security boundary
 
-- Browser code receives only `VITE_*` public origins.
+- Browser code receives only `VITE_*` public origins. Better Auth's custom-JWT
+  issuer, audience and JWKS endpoint are derived from the Convex site URL; no
+  static JWKS or signing material is bundled with the client.
 - Google Places, Turnstile verification, Better Auth, cloud-AI provider keys, and rate-limit salts are server-only Convex environment variables.
 - Optional cloud highlights are authenticated and per-request consented. The server receives only selected text notes and place names, validates structured cited-source output, and records provider/model/outcome receipts without storing prompts or responses.
 - RevenueCat webhooks use a separate Convex-only `REVENUECAT_WEBHOOK_SIGNING_SECRET`. `/webhooks/revenuecat` verifies its raw-body HMAC and a five-minute delivery timestamp before recording an idempotent, redacted provider receipt. It never receives an entitlement decision from the client and never stores the raw event body.
