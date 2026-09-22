@@ -5,6 +5,7 @@ import { authComponent, createAuth } from './betterAuth/auth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { parseRevenueCatWebhook, verifyRevenueCatWebhookSignature } from '../src/lib/revenuecatWebhook'
+import { identifiedWebPurchaseLink } from '../src/lib/webPurchaseLink'
 
 const http = httpRouter()
 
@@ -146,6 +147,35 @@ http.route({ path: '/webhooks/revenuecat', method: 'POST', handler: httpAction(a
     return json({ message: 'Webhook receipt is temporarily unavailable.' }, 503)
   }
 }) })
+
+// The authenticated Better Auth user ID is the same opaque RevenueCat App User
+// ID used by iOS. Never accept an ID or destination URL from the browser.
+// Only the production link is exposed here; sandbox checkout is not public.
+http.route({ path: '/api/owner/pro-purchase-link', method: 'GET', handler: httpAction(async (ctx) => {
+  let ownerAuthUserId: string
+  try {
+    ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+  } catch {
+    return json({ message: 'Sign in to continue to checkout.' }, 401)
+  }
+  const url = identifiedWebPurchaseLink(process.env.REVENUECAT_WEB_PURCHASE_LINK_PRODUCTION, ownerAuthUserId)
+  if (!url) return json({ message: 'Web checkout is not available yet. Use the iPhone app for Vazhi Pro.' }, 503)
+  return new Response(JSON.stringify({ url }), {
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+      'access-control-allow-origin': process.env.SITE_URL ?? '',
+      'vary': 'Origin',
+    },
+  })
+}) })
+
+http.route({ path: '/api/owner/pro-purchase-link', method: 'OPTIONS', handler: httpAction(async () => new Response(null, { headers: {
+  'access-control-allow-origin': process.env.SITE_URL ?? '',
+  'access-control-allow-methods': 'GET,OPTIONS',
+  'access-control-allow-headers': 'authorization',
+  'vary': 'Origin',
+} })) })
 
 http.route({ path: '/api/owner/ask-requests', method: 'POST', handler: httpAction(async (ctx, request) => {
   try {

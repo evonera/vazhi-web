@@ -18,6 +18,7 @@ npm run dev
 - Google Places, Turnstile verification, Better Auth, cloud-AI provider keys, and rate-limit salts are server-only Convex environment variables.
 - Optional cloud highlights are authenticated and per-request consented. The server receives only selected text notes and place names, validates structured cited-source output, and records provider/model/outcome receipts without storing prompts or responses.
 - RevenueCat webhooks use a separate Convex-only `REVENUECAT_WEBHOOK_SIGNING_SECRET`. `/webhooks/revenuecat` verifies its raw-body HMAC and a five-minute delivery timestamp before recording an idempotent, redacted provider receipt. It never receives an entitlement decision from the client and never stores the raw event body.
+- `/pro` prepares a signed-in, identified RevenueCat Web Purchase Link. The owner-only endpoint derives the App User ID from Better Auth (the same opaque ID used by native RevenueCat), allows only a production `https://pay.rev.cat/<token>` template from the Convex environment, appends one URL-encoded ID path segment, and disables checkout if unconfigured. Configure `REVENUECAT_WEB_PURCHASE_LINK_PRODUCTION` only after Paddle Billing, the RevenueCat offering, account identity, and return/subscription-management flow have been checked. Never put a sandbox URL in that variable or expose one on the public site.
 - Public requests never reveal private Vazhi Moments, media, transcripts, or exact owner locations.
 
 The prior experiment is preserved locally in `legacy-reference/` and intentionally excluded from Git.

@@ -43,3 +43,12 @@ test('desktop campaign navigation and the download fallback are keyboard reachab
   await expect(page.getByRole('heading', { name: /Vazhi for iPhone is almost here/i })).toBeVisible()
   await expect(page.getByRole('link', { name: /Try the public demo/i })).toBeVisible()
 })
+
+test('Pro checkout is explained and does not expose an unconfigured purchase link', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 })
+  await page.goto('/pro')
+  await expect(page.getByRole('heading', { name: 'More room for every path.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Continue to secure checkout/ })).toBeVisible()
+  await expect(page.locator('a[href^="https://pay.rev.cat/"]')).toHaveCount(0)
+  await expect(page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).resolves.toBe(true)
+})

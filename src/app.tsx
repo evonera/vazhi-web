@@ -26,6 +26,7 @@ export function App() {
   if (window.location.pathname === '/report') return <LegalPage title="Report a link" />
   if (window.location.pathname === '/sign-in') return <SignInPage />
   if (window.location.pathname === '/requests') return <RequestsPage />
+  if (window.location.pathname === '/pro') return <ProPage />
   if (window.location.pathname === '/download') return <DownloadPage />
   return <LandingPage />
 }
@@ -98,6 +99,27 @@ function PublicGuidePage({ handle, slug }: { handle: string; slug: string }) {
 function UnavailableGuide() { return <main className="route-page route-page--centered"><h1>This guide is unavailable.</h1><p>It may be private, unpublished, or no longer available.</p><a href="/" className="button">Meet Vazhi</a></main> }
 
 function DownloadPage() { return <main className="download-page"><SiteHeader /><section><p className="section-label">VAZHI ON THE WAY</p><h1>Vazhi for iPhone is almost here.</h1><p>We’ll make this page open the App Store as soon as Vazhi is live. Until then, the complete Ask the Way experience works in your browser.</p><a className="button" href="/ask/demo-malaysia">Try the public demo <span aria-hidden="true">↗</span></a><p className="platform-note">Android · coming soon</p></section><SiteFooter /></main> }
+function ProPage() {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'sign-in' | 'unavailable'>('idle')
+  const [message, setMessage] = useState<string | null>(null)
+  async function continueToCheckout() {
+    setStatus('loading'); setMessage(null)
+    try {
+      const token = await getConvexAccessToken()
+      const base = import.meta.env.VITE_CONVEX_HTTP_URL as string
+      const response = await fetch(`${base}/api/owner/pro-purchase-link`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+      if (response.status === 401) { setStatus('sign-in'); return }
+      if (!response.ok) { setStatus('unavailable'); return }
+      const { url } = await response.json() as { url: string }
+      if (!url.startsWith('https://pay.rev.cat/')) throw new Error('Checkout destination is unavailable.')
+      window.location.assign(url)
+    } catch (error) {
+      setStatus('sign-in')
+      setMessage(error instanceof Error ? error.message : 'Sign in to continue.')
+    }
+  }
+  return <main className="pro-page"><SiteHeader /><section className="pro-page__content"><p className="section-label">VAZHI PRO</p><h1>More room for every path.</h1><p className="lede">Keep unlimited Paths in your private travel journal. Your subscription works with the same Vazhi account on iPhone and web.</p><div className="pro-card"><p className="section-label">WEB CHECKOUT</p><h2>Continue with your Vazhi account.</h2><p>Sign in with Apple first. RevenueCat securely presents the available plans and checkout; Vazhi does not collect your card details.</p><button className="button button--dark" type="button" onClick={() => void continueToCheckout()} disabled={status === 'loading'}>{status === 'loading' ? 'Opening checkout…' : 'Continue to secure checkout'} <span aria-hidden="true">↗</span></button>{status === 'sign-in' && <p className="pro-card__notice" role="status">{message ?? 'Sign in with Apple, then return here to continue.'} <a href="/sign-in">Sign in</a></p>}{status === 'unavailable' && <p className="pro-card__notice" role="status">Web checkout is not available yet. You can still subscribe in the iPhone app.</p>}</div><p className="pro-page__fineprint">Purchases, renewals, cancellation, and refunds are managed by the checkout provider. The iPhone app checks your active Vazhi Pro entitlement through RevenueCat.</p></section><SiteFooter /></main>
+}
 function SignInPage() { const [error, setError] = useState<string | null>(null); return <main className="route-page route-page--centered"><p className="eyebrow">Owner access</p><h1>Sign in on Vazhi.</h1><p>Use Apple to manage links you created. Audience members never need an account.</p><button className="button" onClick={() => startAppleSignIn().catch((reason: Error) => setError(reason.message))}>Continue with Apple</button>{error && <p className="form-error" role="alert">{error}</p>}</main> }
 type OwnerRequest = { id: string; slug: string; prompt: string; destination: string; status: 'open' | 'closed'; recommendationCount: number }
 function RequestsPage() { const [requests, setRequests] = useState<OwnerRequest[]>([]); const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(true); async function load() { try { const token = await getConvexAccessToken(); const base = import.meta.env.VITE_CONVEX_HTTP_URL as string; const response = await fetch(`${base}/api/owner/ask-requests`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error('Your requests are unavailable.'); setRequests(await response.json() as OwnerRequest[]) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Sign in to view your requests.') } finally { setLoading(false) } }; useEffect(() => { void load() }, []); async function closeRequest(requestID: string) { try { const token = await getConvexAccessToken(); const base = import.meta.env.VITE_CONVEX_HTTP_URL as string; const response = await fetch(`${base}/api/owner/ask-requests`, { method: 'PATCH', headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ requestID, status: 'closed' }) }); if (!response.ok) throw new Error('The link could not be closed.'); setRequests((current) => current.map((item) => item.id === requestID ? { ...item, status: 'closed' } : item)) } catch (reason) { setError(reason instanceof Error ? reason.message : 'The link could not be closed.') } }; if (loading) return <main className="route-page route-page--centered"><p>Loading your requests…</p></main>; if (error && requests.length === 0) return <main className="route-page route-page--centered"><p className="eyebrow">Owner access</p><h1>Sign in to see your requests.</h1><p>{error}</p><a className="button" href="/sign-in">Continue with Apple</a></main>; return <main className="dashboard-page"><SiteHeader /><div className="dashboard-page__shell"><p className="eyebrow">Ask the Way</p><h1>Your requests</h1><p className="lede">Your iPhone remains the home for accepting recommendations and building a Path.</p>{error && <p className="form-error" role="alert">{error}</p>}<section className="request-list" aria-label="Your Ask the Way requests">{requests.length === 0 ? <p>No requests yet. Create one from a Journey in Vazhi.</p> : requests.map((request) => <article className="request-card" key={request.id}><p className="status"><span aria-hidden="true">{request.status === 'open' ? '●' : '○'}</span> {request.status}</p><h2>{request.destination}</h2><p>{request.prompt}</p><p className="fine-print">{request.recommendationCount} recommendation{request.recommendationCount === 1 ? '' : 's'} · <a href={`/ask/${request.slug}`}>Open public link</a></p>{request.status === 'open' && <button className="text-link" onClick={() => void closeRequest(request.id)}>Close link</button>}</article>)}</section></div><SiteFooter /></main> }
