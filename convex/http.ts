@@ -21,8 +21,9 @@ function escapeXML(value: string) {
 }
 
 async function requestBucket(request: Request) {
-  // Unknown deployments fail closed. A predictable local salt is acceptable
-  // only for the explicitly marked development deployment.
+  // This helper is only called after `hasVerifiedPublicIngress`. The Worker
+  // derives this opaque HMAC from the edge IP and binds it to the signed raw
+  // request, so clients cannot choose their own rate-limit bucket.
   const forwarded = request.headers.get('x-vazhi-rate-key')
   if (forwarded && /^[a-f0-9]{64}$/i.test(forwarded)) return forwarded
   const salt = developmentIngressSalt(process.env.VAZHI_ENVIRONMENT, process.env.RATE_LIMIT_SALT)
@@ -352,8 +353,12 @@ http.route({ path: '/api/ai/suggestions', method: 'POST', handler: httpAction(as
 }) })
 
 http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (ctx, request) => {
-  const input = await request.json() as { query?: string; slug?: string }
+  const rawBody = await request.text()
+  if (!await hasVerifiedPublicIngress(request, rawBody)) {
+    return json({ message: 'Place search is temporarily unavailable.' }, 503)
+  }
   try {
+    const input = JSON.parse(rawBody) as { query?: string; slug?: string }
     const { destination } = await ctx.runMutation(internal.requests.preparePublicPlaceSearch, {
       slug: input.slug ?? '', rateLimitKey: await requestBucket(request),
     })
@@ -361,24 +366,6 @@ http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (
     return json(result)
   } catch {
     return json({ message: 'Place search is temporarily unavailable.' }, 503)
-  }
-}) })
-
-http.route({ path: '/places/autocomplete', method: 'POST', handler: httpAction(async (ctx, request) => {
-  const input = await request.json() as { input?: string; destination?: string }
-  try {
-    return json(await ctx.runAction(internal.places.autocomplete, { input: input.input ?? '', destination: input.destination }))
-  } catch {
-    return json({ message: 'Place suggestions are temporarily unavailable.' }, 503)
-  }
-}) })
-
-http.route({ path: '/places/details', method: 'POST', handler: httpAction(async (ctx, request) => {
-  const input = await request.json() as { placeID?: string }
-  try {
-    return json(await ctx.runAction(internal.places.details, { placeID: input.placeID ?? '' }))
-  } catch {
-    return json({ message: 'Place details are temporarily unavailable.' }, 503)
   }
 }) })
 

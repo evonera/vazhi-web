@@ -11,19 +11,25 @@ const base = {
 }
 
 describe('release preflight', () => {
-  it('passes core preview without printing secret values', () => {
-    const result = spawnSync(process.execPath, [script], { env: { ...process.env, ...base }, encoding: 'utf8' })
+  it('passes a target-specific preview preflight without printing secret values', () => {
+    const result = spawnSync(process.execPath, [script, '--target=convex'], { env: { ...process.env, ...base }, encoding: 'utf8' })
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain('preview core preflight passed')
+    expect(result.stdout).toContain('preview convex core preflight passed')
     expect(result.stdout + result.stderr).not.toContain('site-key')
   })
 
   it('blocks missing release credentials and optional commerce configuration', () => {
-    const core = spawnSync(process.execPath, [script], { env: { ...process.env, ...base, EDGE_INGRESS_SIGNING_SECRET: '' }, encoding: 'utf8' })
+    const core = spawnSync(process.execPath, [script, '--target=convex'], { env: { ...process.env, ...base, EDGE_INGRESS_SIGNING_SECRET: '' }, encoding: 'utf8' })
     expect(core.status).toBe(1)
     expect(core.stderr).toContain('EDGE_INGRESS_SIGNING_SECRET')
-    const commerce = spawnSync(process.execPath, [script, '--commerce'], { env: { ...process.env, ...base }, encoding: 'utf8' })
+    const commerce = spawnSync(process.execPath, [script, '--target=convex', '--commerce'], { env: { ...process.env, ...base }, encoding: 'utf8' })
     expect(commerce.status).toBe(1)
     expect(commerce.stderr).toContain('REVENUECAT_WEBHOOK_SIGNING_SECRET')
+  })
+
+  it('rejects an unknown deployment target', () => {
+    const result = spawnSync(process.execPath, [script, '--target=browser'], { env: { ...process.env, ...base }, encoding: 'utf8' })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Preflight target')
   })
 })

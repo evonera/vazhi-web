@@ -5,6 +5,8 @@
 // secrets into a shell transcript just to inspect them.
 const mode = process.argv.includes('--commerce') ? 'commerce' : 'core'
 const environment = process.env.VAZHI_ENVIRONMENT
+const targetFlag = process.argv.find((argument) => argument.startsWith('--target='))
+const target = targetFlag?.slice('--target='.length) ?? 'all'
 
 const convexRequired = [
   'BETTER_AUTH_SECRET', 'SITE_URL', 'APPLE_SERVICE_ID', 'APPLE_CLIENT_SECRET',
@@ -20,10 +22,23 @@ const commerceRequired = [
 ]
 
 const missing = (names) => names.filter((name) => !process.env[name]?.trim())
+const targetSections = {
+  convex: [['Convex', missing(convexRequired)]],
+  worker: [['Cloudflare Worker', missing(workerRequired)]],
+  all: [
+    ['Convex', missing(convexRequired)],
+    ['Cloudflare Worker', missing(workerRequired)],
+  ],
+}
+
+if (!Object.hasOwn(targetSections, target)) {
+  console.error('Preflight target must be "convex", "worker", or "all".')
+  process.exitCode = 1
+}
+
 const sections = [
-  ['Convex', missing(convexRequired)],
-  ['Cloudflare Worker', missing(workerRequired)],
-  ...(mode === 'commerce' ? [['RevenueCat Web', missing(commerceRequired)]] : []),
+  ...(targetSections[target] ?? []),
+  ...(mode === 'commerce' && (target === 'convex' || target === 'all') ? [['RevenueCat Web', missing(commerceRequired)]] : []),
 ]
 
 if (!['preview', 'production'].includes(environment ?? '')) {
@@ -38,4 +53,4 @@ for (const [name, absent] of sections) {
   }
 }
 
-if (!process.exitCode) console.log(`Vazhi ${environment} ${mode} preflight passed.`)
+if (!process.exitCode) console.log(`Vazhi ${environment} ${target} ${mode} preflight passed.`)

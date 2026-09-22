@@ -125,4 +125,33 @@ describe('public write ingress', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  it('signs public place search at the edge without allowing direct Google proxy routes', async () => {
+    const originalFetch = globalThis.fetch
+    const body = JSON.stringify({ slug: 'malaysia', query: 'Village Park' })
+    globalThis.fetch = async (input, init) => {
+      expect(String(input)).toBe('https://vazhi.convex.site/places/search')
+      await expect(verifyEdgeIngressSignature({
+        rawBody: String(init?.body),
+        signatureHeader: new Headers(init?.headers).get('x-vazhi-edge-signature'),
+        signingSecret: 'edge-secret',
+      })).resolves.toBe(true)
+      expect(new Headers(init?.headers).get('x-vazhi-rate-key')).toMatch(/^[a-f0-9]{64}$/)
+      return new Response(JSON.stringify([]), { headers: { 'content-type': 'application/json' } })
+    }
+    try {
+      const response = await worker.fetch(new Request('https://vazhi.app/places/search', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body,
+      }), environment({
+        CONVEX_HTTP_URL: 'https://vazhi.convex.site',
+        VAZHI_ENVIRONMENT: 'production',
+        EDGE_INGRESS_SIGNING_SECRET: 'edge-secret',
+        RATE_LIMIT_SALT: 'rate-limit-secret',
+      }))
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual([])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

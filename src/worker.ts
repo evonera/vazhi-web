@@ -85,12 +85,18 @@ async function turnstilePasses(input: Record<string, unknown>, request: Request,
   return (await response.json() as { success?: boolean }).success === true
 }
 
-async function forwardPublicWrite(path: '/api/recommendations' | '/api/reports', request: Request, env: Env) {
+type SignedPublicIngressPath = '/api/recommendations' | '/api/reports' | '/places/search'
+
+async function forwardSignedPublicIngress(path: SignedPublicIngressPath, request: Request, env: Env) {
   if (!env.CONVEX_HTTP_URL) return json({ message: 'This request is unavailable.' }, 503)
   const rawBody = await request.text()
   let input: Record<string, unknown>
   try { input = JSON.parse(rawBody) as Record<string, unknown> } catch { return json({ message: 'Check the form and try again.' }, 400) }
-  if (!await turnstilePasses(input, request, env)) return json({ message: 'Please complete the verification and try again.' }, 400)
+  // Searching must remain frictionless while someone is choosing a place.
+  // Recommendation and report submission still require Turnstile.
+  if (path !== '/places/search' && !await turnstilePasses(input, request, env)) {
+    return json({ message: 'Please complete the verification and try again.' }, 400)
+  }
   if ((!env.EDGE_INGRESS_SIGNING_SECRET || !env.RATE_LIMIT_SALT) && env.VAZHI_ENVIRONMENT !== 'development') return json({ message: 'This request is unavailable.' }, 503)
   const headers = new Headers({ 'content-type': 'application/json' })
   if (env.EDGE_INGRESS_SIGNING_SECRET) headers.set('x-vazhi-edge-signature', await edgeIngressSignature(rawBody, env.EDGE_INGRESS_SIGNING_SECRET))
@@ -103,7 +109,10 @@ const worker = {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url)
     if (request.method === 'POST' && (url.pathname === '/api/recommendations' || url.pathname === '/api/reports')) {
-      return forwardPublicWrite(url.pathname, request, env)
+      return forwardSignedPublicIngress(url.pathname, request, env)
+    }
+    if (request.method === 'POST' && url.pathname === '/places/search') {
+      return forwardSignedPublicIngress('/places/search', request, env)
     }
     if (url.pathname === '/download' && request.method === 'GET') {
       const userAgent = request.headers.get('user-agent') ?? ''
