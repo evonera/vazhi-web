@@ -2,6 +2,8 @@ import { httpRouter } from 'convex/server'
 import { httpAction } from './_generated/server'
 import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
+import type { GenericCtx } from '@convex-dev/better-auth/utils'
+import type { DataModel } from './_generated/dataModel'
 
 const http = httpRouter()
 
@@ -21,10 +23,9 @@ async function requestBucket(request: Request) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-async function ownerTokenIdentifier(ctx: { auth: { getUserIdentity: () => Promise<{ tokenIdentifier: string } | null> } }) {
-  const identity = await ctx.auth.getUserIdentity()
-  if (!identity) throw new Error('Sign in required.')
-  return identity.tokenIdentifier
+async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
+  const user = await authComponent.getAuthUser(ctx)
+  return String(user._id)
 }
 
 async function verifyTurnstile(token: string | undefined, remoteIP: string | null) {
@@ -81,9 +82,9 @@ http.route({ path: '/api/recommendations', method: 'POST', handler: httpAction(a
 http.route({ path: '/api/owner/ask-requests', method: 'POST', handler: httpAction(async (ctx, request) => {
   try {
     const input = await request.json() as Record<string, unknown>
-    const ownerTokenIdentifier = await ownerTokenIdentifier(ctx)
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const result = await ctx.runMutation(internal.requests.createForOwner, {
-      ownerTokenIdentifier,
+      ownerAuthUserId,
       localJourneyID: typeof input.localJourneyID === 'string' ? input.localJourneyID : '',
       title: typeof input.title === 'string' ? input.title : '',
       destination: typeof input.destination === 'string' ? input.destination : '',
@@ -97,8 +98,8 @@ http.route({ path: '/api/owner/ask-requests', method: 'POST', handler: httpActio
 
 http.route({ path: '/api/owner/ask-requests', method: 'GET', handler: httpAction(async (ctx) => {
   try {
-    const ownerTokenIdentifier = await ownerTokenIdentifier(ctx)
-    return json(await ctx.runQuery(internal.requests.listForOwner, { ownerTokenIdentifier }))
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    return json(await ctx.runQuery(internal.requests.listForOwner, { ownerAuthUserId }))
   } catch {
     return json({ message: 'Sign in to view your requests.' }, 401)
   }
@@ -106,10 +107,10 @@ http.route({ path: '/api/owner/ask-requests', method: 'GET', handler: httpAction
 
 http.route({ path: '/api/owner/ask-requests', method: 'PATCH', handler: httpAction(async (ctx, request) => {
   try {
-    const ownerTokenIdentifier = await ownerTokenIdentifier(ctx)
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const input = await request.json() as Record<string, unknown>
     await ctx.runMutation(internal.requests.setRequestStatusForOwner, {
-      ownerTokenIdentifier,
+      ownerAuthUserId,
       requestId: typeof input.requestID === 'string' ? input.requestID : '',
       status: input.status,
     } as never)
@@ -121,9 +122,9 @@ http.route({ path: '/api/owner/ask-requests', method: 'PATCH', handler: httpActi
 
 http.route({ path: '/api/owner/recommendations', method: 'GET', handler: httpAction(async (ctx, request) => {
   try {
-    const ownerTokenIdentifier = await ownerTokenIdentifier(ctx)
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const requestId = new URL(request.url).searchParams.get('requestID') ?? ''
-    const result = await ctx.runQuery(internal.requests.listRecommendationsForOwner, { ownerTokenIdentifier, requestId } as never)
+    const result = await ctx.runQuery(internal.requests.listRecommendationsForOwner, { ownerAuthUserId, requestId } as never)
     return json(result.map((recommendation) => ({
       id: recommendation._id,
       anonymous: recommendation.anonymous,
@@ -144,9 +145,9 @@ http.route({ path: '/api/owner/recommendations', method: 'GET', handler: httpAct
 http.route({ path: '/api/owner/recommendations', method: 'PATCH', handler: httpAction(async (ctx, request) => {
   try {
     const input = await request.json() as Record<string, unknown>
-    const ownerTokenIdentifier = await ownerTokenIdentifier(ctx)
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     await ctx.runMutation(internal.requests.setRecommendationStatusForOwner, {
-      ownerTokenIdentifier,
+      ownerAuthUserId,
       recommendationId: typeof input.recommendationID === 'string' ? input.recommendationID : '',
       status: input.status,
     } as never)

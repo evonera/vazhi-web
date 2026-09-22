@@ -2,6 +2,9 @@ import { ConvexError, v } from 'convex/values'
 import { internalMutation, internalQuery, mutation, query } from './_generated/server'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
+import { authComponent } from './betterAuth/auth'
+import type { GenericCtx } from '@convex-dev/better-auth/utils'
+import type { DataModel } from './_generated/dataModel'
 
 const category = v.union(
   v.literal('food'), v.literal('hidden_spot'), v.literal('stay'),
@@ -24,9 +27,9 @@ const rateLimiter = new RateLimiter(components.rateLimiter, {
   },
 })
 
-function ownerIdentity(identity: { tokenIdentifier: string } | null) {
-  if (!identity) throw new ConvexError('Sign in with Apple to manage Ask the Way requests.')
-  return identity.tokenIdentifier
+async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
+  const user = await authComponent.getAuthUser(ctx)
+  return String(user._id)
 }
 
 function slug() {
@@ -45,14 +48,14 @@ function isHTTPSURL(value: string) {
 export const create = mutation({
   args: { localJourneyID: v.string(), title: v.string(), destination: v.string(), prompt: v.string(), startsAt: v.optional(v.number()), endsAt: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const ownerTokenIdentifier = ownerIdentity(await ctx.auth.getUserIdentity())
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     if (!args.localJourneyID || !args.title.trim() || !args.destination.trim() || !args.prompt.trim()) throw new ConvexError('Add a title, destination, and question.')
-    const existingJourney = await ctx.db.query('journeys').withIndex('by_ownerTokenIdentifier_and_localID', (q) => q.eq('ownerTokenIdentifier', ownerTokenIdentifier).eq('localID', args.localJourneyID)).unique()
+    const existingJourney = await ctx.db.query('journeys').withIndex('by_ownerAuthUserId_and_localID', (q) => q.eq('ownerAuthUserId', ownerAuthUserId).eq('localID', args.localJourneyID)).unique()
     const now = Date.now()
-    const journeyId = existingJourney?._id ?? await ctx.db.insert('journeys', { ownerTokenIdentifier, localID: args.localJourneyID, title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, updatedAt: now })
+    const journeyId = existingJourney?._id ?? await ctx.db.insert('journeys', { ownerAuthUserId, localID: args.localJourneyID, title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, updatedAt: now })
     if (existingJourney) await ctx.db.patch(existingJourney._id, { title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, updatedAt: now })
     const requestSlug = slug()
-    const requestId = await ctx.db.insert('askRequests', { ownerTokenIdentifier, journeyId, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', createdAt: now })
+    const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId, journeyId, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', createdAt: now })
     return { id: requestId, slug: requestSlug, status: 'open' as const }
   },
 })
@@ -60,17 +63,44 @@ export const create = mutation({
 export const listMine = query({
   args: {},
   handler: async (ctx) => {
-    const ownerTokenIdentifier = ownerIdentity(await ctx.auth.getUserIdentity())
-    return ctx.db.query('askRequests').withIndex('by_ownerTokenIdentifier_and_createdAt', (q) => q.eq('ownerTokenIdentifier', ownerTokenIdentifier)).order('desc').take(50)
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    return ctx.db.query('askRequests').withIndex('by_ownerAuthUserId_and_createdAt', (q) => q.eq('ownerAuthUserId', ownerAuthUserId)).order('desc').take(50)
+  },
+})
+
+/// A compact live projection for a Journey header/inbox badge. The query is
+/// owner-scoped so it is safe to subscribe to from the authenticated native
+/// client without exposing recommendation contents or contributor identity.
+export const askStatsForJourney = query({
+  args: { localJourneyID: v.string() },
+  handler: async (ctx, args) => {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const journey = await ctx.db.query('journeys')
+      .withIndex('by_ownerAuthUserId_and_localID', (q) => q
+        .eq('ownerAuthUserId', ownerAuthUserId).eq('localID', args.localJourneyID))
+      .unique()
+    if (!journey) return { openRequestCount: 0, recommendationCount: 0, pendingCount: 0 }
+    const requests = await ctx.db.query('askRequests')
+      .withIndex('by_journeyId_and_createdAt', (q) => q.eq('journeyId', journey._id))
+      .take(50)
+    const recommendations = await Promise.all(requests.map((request) => ctx.db.query('recommendations')
+      .withIndex('by_askRequestId_and_submittedAt', (q) => q.eq('askRequestId', request._id))
+      .take(100)))
+    const flat = recommendations.flat()
+    return {
+      openRequestCount: requests.filter((request) => request.status === 'open').length,
+      recommendationCount: flat.length,
+      pendingCount: flat.filter((recommendation) => recommendation.status === 'pending').length,
+    }
   },
 })
 
 export const setStatus = mutation({
   args: { requestId: v.id('askRequests'), status: v.union(v.literal('open'), v.literal('closed')) },
   handler: async (ctx, args) => {
-    const ownerTokenIdentifier = ownerIdentity(await ctx.auth.getUserIdentity())
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const request = await ctx.db.get(args.requestId)
-    if (!request || request.ownerTokenIdentifier !== ownerTokenIdentifier) throw new ConvexError('Request not found.')
+    if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Request not found.')
     await ctx.db.patch(request._id, { status: args.status, closedAt: args.status === 'closed' ? Date.now() : undefined })
     return null
   },
@@ -79,9 +109,9 @@ export const setStatus = mutation({
 export const listRecommendations = query({
   args: { requestId: v.id('askRequests') },
   handler: async (ctx, args) => {
-    const ownerTokenIdentifier = ownerIdentity(await ctx.auth.getUserIdentity())
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const request = await ctx.db.get(args.requestId)
-    if (!request || request.ownerTokenIdentifier !== ownerTokenIdentifier) throw new ConvexError('Request not found.')
+    if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Request not found.')
     return ctx.db.query('recommendations').withIndex('by_askRequestId_and_submittedAt', (q) => q.eq('askRequestId', request._id)).order('desc').take(100)
   },
 })
@@ -89,11 +119,11 @@ export const listRecommendations = query({
 export const setRecommendationStatus = mutation({
   args: { recommendationId: v.id('recommendations'), status: v.union(v.literal('accepted'), v.literal('ignored')) },
   handler: async (ctx, args) => {
-    const ownerTokenIdentifier = ownerIdentity(await ctx.auth.getUserIdentity())
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const recommendation = await ctx.db.get(args.recommendationId)
     if (!recommendation) throw new ConvexError('Recommendation not found.')
     const request = await ctx.db.get(recommendation.askRequestId)
-    if (!request || request.ownerTokenIdentifier !== ownerTokenIdentifier) throw new ConvexError('Recommendation not found.')
+    if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Recommendation not found.')
     await ctx.db.patch(recommendation._id, { status: args.status })
     return null
   },
@@ -102,12 +132,12 @@ export const setRecommendationStatus = mutation({
 export const createPathFromAccepted = mutation({
   args: { requestId: v.id('askRequests'), title: v.string() },
   handler: async (ctx, args) => {
-    const ownerTokenIdentifier = ownerIdentity(await ctx.auth.getUserIdentity())
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const request = await ctx.db.get(args.requestId)
-    if (!request || request.ownerTokenIdentifier !== ownerTokenIdentifier) throw new ConvexError('Request not found.')
+    if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Request not found.')
     const accepted = await ctx.db.query('recommendations').withIndex('by_askRequestId_and_status_and_submittedAt', (q) => q.eq('askRequestId', request._id).eq('status', 'accepted')).order('asc').take(100)
     if (accepted.length === 0) throw new ConvexError('Accept at least one recommendation first.')
-    const pathId = await ctx.db.insert('paths', { ownerTokenIdentifier, journeyId: request.journeyId, title: args.title, status: 'draft', createdAt: Date.now() })
+    const pathId = await ctx.db.insert('paths', { ownerAuthUserId, journeyId: request.journeyId, title: args.title, status: 'draft', createdAt: Date.now() })
     for (const [orderIndex, recommendation] of accepted.entries()) {
       await ctx.db.insert('pathStops', { pathId, recommendationId: recommendation._id, orderIndex, category: recommendation.category, place: recommendation.place, notes: recommendation.note })
     }
@@ -144,60 +174,60 @@ export const submitPublic = internalMutation({
   },
 })
 
-// HTTP actions use these internal functions after authenticating the custom JWT
-// themselves. Keeping the claimed owner identifier internal prevents callers
-// from selecting another owner's records in a public API argument.
+// HTTP actions authenticate first and pass only the session-derived opaque
+// Better Auth user ID to these internal helpers. The ID is never accepted from
+// a request body, so a mobile caller cannot select another owner's records.
 export const createForOwner = internalMutation({
   args: {
-    ownerTokenIdentifier: v.string(), localJourneyID: v.string(), title: v.string(),
+    ownerAuthUserId: v.string(), localJourneyID: v.string(), title: v.string(),
     destination: v.string(), prompt: v.string(), startsAt: v.optional(v.number()), endsAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     if (!args.localJourneyID || !args.title.trim() || !args.destination.trim() || !args.prompt.trim()) throw new ConvexError('Add a title, destination, and question.')
-    const existingJourney = await ctx.db.query('journeys').withIndex('by_ownerTokenIdentifier_and_localID', (q) => q.eq('ownerTokenIdentifier', args.ownerTokenIdentifier).eq('localID', args.localJourneyID)).unique()
+    const existingJourney = await ctx.db.query('journeys').withIndex('by_ownerAuthUserId_and_localID', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('localID', args.localJourneyID)).unique()
     const now = Date.now()
-    const journeyId = existingJourney?._id ?? await ctx.db.insert('journeys', { ownerTokenIdentifier: args.ownerTokenIdentifier, localID: args.localJourneyID, title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, updatedAt: now })
+    const journeyId = existingJourney?._id ?? await ctx.db.insert('journeys', { ownerAuthUserId: args.ownerAuthUserId, localID: args.localJourneyID, title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, updatedAt: now })
     if (existingJourney) await ctx.db.patch(existingJourney._id, { title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, updatedAt: now })
     const requestSlug = slug()
-    const requestId = await ctx.db.insert('askRequests', { ownerTokenIdentifier: args.ownerTokenIdentifier, journeyId, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', createdAt: now })
+    const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId: args.ownerAuthUserId, journeyId, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', createdAt: now })
     return { id: requestId, slug: requestSlug, prompt: args.prompt, destination: args.destination, status: 'open' as const }
   },
 })
 
 export const listRecommendationsForOwner = internalQuery({
-  args: { ownerTokenIdentifier: v.string(), requestId: v.id('askRequests') },
+  args: { ownerAuthUserId: v.string(), requestId: v.id('askRequests') },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId)
-    if (!request || request.ownerTokenIdentifier !== args.ownerTokenIdentifier) throw new ConvexError('Request not found.')
+    if (!request || request.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Request not found.')
     return ctx.db.query('recommendations').withIndex('by_askRequestId_and_submittedAt', (q) => q.eq('askRequestId', request._id)).order('desc').take(100)
   },
 })
 
 export const assertRequestOwner = internalQuery({
-  args: { ownerTokenIdentifier: v.string(), requestId: v.id('askRequests') },
+  args: { ownerAuthUserId: v.string(), requestId: v.id('askRequests') },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId)
-    if (!request || request.ownerTokenIdentifier !== args.ownerTokenIdentifier) throw new ConvexError('Request not found.')
+    if (!request || request.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Request not found.')
     return { journeyId: request.journeyId }
   },
 })
 
 export const setRecommendationStatusForOwner = internalMutation({
-  args: { ownerTokenIdentifier: v.string(), recommendationId: v.id('recommendations'), status: v.union(v.literal('accepted'), v.literal('ignored')) },
+  args: { ownerAuthUserId: v.string(), recommendationId: v.id('recommendations'), status: v.union(v.literal('accepted'), v.literal('ignored')) },
   handler: async (ctx, args) => {
     const recommendation = await ctx.db.get(args.recommendationId)
     if (!recommendation) throw new ConvexError('Recommendation not found.')
     const request = await ctx.db.get(recommendation.askRequestId)
-    if (!request || request.ownerTokenIdentifier !== args.ownerTokenIdentifier) throw new ConvexError('Recommendation not found.')
+    if (!request || request.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Recommendation not found.')
     await ctx.db.patch(recommendation._id, { status: args.status })
     return null
   },
 })
 
 export const listForOwner = internalQuery({
-  args: { ownerTokenIdentifier: v.string() },
+  args: { ownerAuthUserId: v.string() },
   handler: async (ctx, args) => {
-    const requests = await ctx.db.query('askRequests').withIndex('by_ownerTokenIdentifier_and_createdAt', (q) => q.eq('ownerTokenIdentifier', args.ownerTokenIdentifier)).order('desc').take(50)
+    const requests = await ctx.db.query('askRequests').withIndex('by_ownerAuthUserId_and_createdAt', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId)).order('desc').take(50)
     return Promise.all(requests.map(async (request) => {
       const recommendations = await ctx.db.query('recommendations').withIndex('by_askRequestId_and_submittedAt', (q) => q.eq('askRequestId', request._id)).take(100)
       return { id: request._id, slug: request.slug, prompt: request.prompt, destination: request.destination, status: request.status, createdAt: request.createdAt, recommendationCount: recommendations.length }
@@ -206,10 +236,10 @@ export const listForOwner = internalQuery({
 })
 
 export const setRequestStatusForOwner = internalMutation({
-  args: { ownerTokenIdentifier: v.string(), requestId: v.id('askRequests'), status: v.union(v.literal('open'), v.literal('closed')) },
+  args: { ownerAuthUserId: v.string(), requestId: v.id('askRequests'), status: v.union(v.literal('open'), v.literal('closed')) },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId)
-    if (!request || request.ownerTokenIdentifier !== args.ownerTokenIdentifier) throw new ConvexError('Request not found.')
+    if (!request || request.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Request not found.')
     await ctx.db.patch(request._id, { status: args.status, closedAt: args.status === 'closed' ? Date.now() : undefined })
     return null
   },
