@@ -50,6 +50,20 @@ http.route({ path: '/api/ask', method: 'GET', handler: httpAction(async (ctx, re
   return result ? json(result) : json({ message: 'This request is unavailable.' }, 404)
 }) })
 
+http.route({ path: '/api/profile', method: 'GET', handler: httpAction(async (ctx, request) => {
+  const handle = new URL(request.url).searchParams.get('handle') ?? ''
+  const result = await ctx.runQuery(internal.listings.getPublicProfileByHandle, { handle })
+  return result ? json(result) : json({ message: 'This profile is unavailable.' }, 404)
+}) })
+
+http.route({ path: '/api/listing', method: 'GET', handler: httpAction(async (ctx, request) => {
+  const url = new URL(request.url)
+  const result = await ctx.runQuery(internal.listings.getPublicListing, {
+    handle: url.searchParams.get('handle') ?? '', slug: url.searchParams.get('slug') ?? '',
+  })
+  return result ? json(result) : json({ message: 'This guide is unavailable.' }, 404)
+}) })
+
 // A public, 9:16 story card built solely from the sanitised request projection.
 http.route({ path: '/og/ask', method: 'GET', handler: httpAction(async (ctx, request) => {
   const slug = new URL(request.url).searchParams.get('slug') ?? ''
@@ -106,6 +120,18 @@ http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (
   }
 }) })
 
+http.route({ path: '/api/reports', method: 'POST', handler: httpAction(async (ctx, request) => {
+  const input = await request.json() as Record<string, unknown>
+  try {
+    await ctx.runMutation(internal.listings.reportPublicListing, {
+      listingSlug: typeof input.listingSlug === 'string' ? input.listingSlug : '',
+      reason: typeof input.reason === 'string' ? input.reason : '',
+      detail: typeof input.detail === 'string' ? input.detail : undefined,
+    })
+  } catch { /* Return a generic receipt; reports are not an existence oracle. */ }
+  return json({ accepted: true })
+}) })
+
 http.route({ path: '/api/owner/ask-requests', method: 'POST', handler: httpAction(async (ctx, request) => {
   try {
     const input = await request.json() as Record<string, unknown>
@@ -121,6 +147,61 @@ http.route({ path: '/api/owner/ask-requests', method: 'POST', handler: httpActio
   } catch {
     return json({ message: 'We could not create that request. Check your sign-in and journey details.' }, 400)
   }
+}) })
+
+http.route({ path: '/api/owner/listings', method: 'POST', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const input = await request.json() as Record<string, unknown>
+    const result = await ctx.runMutation(internal.listings.publishForOwner, {
+      ownerAuthUserId,
+      localPathID: typeof input.localPathID === 'string' ? input.localPathID : '',
+      visibility: input.visibility,
+      title: typeof input.title === 'string' ? input.title : '',
+      subtitle: typeof input.subtitle === 'string' ? input.subtitle : '',
+      disclaimer: typeof input.disclaimer === 'string' ? input.disclaimer : '',
+      approximateLocations: input.approximateLocations === true,
+      stops: Array.isArray(input.stops) ? input.stops : [],
+    } as never)
+    return json(result, 201)
+  } catch {
+    return json({ message: 'We could not publish that guide. Check your profile and privacy review.' }, 400)
+  }
+}) })
+
+http.route({ path: '/api/owner/listings', method: 'PATCH', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const input = await request.json() as Record<string, unknown>
+    await ctx.runMutation(internal.listings.archiveForOwner, {
+      ownerAuthUserId, listingId: typeof input.listingID === 'string' ? input.listingID : '',
+    } as never)
+    return json({ updated: true })
+  } catch {
+    return json({ message: 'That guide could not be unpublished.' }, 404)
+  }
+}) })
+
+http.route({ path: '/api/owner/profile', method: 'GET', handler: httpAction(async (ctx) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    return json(await ctx.runQuery(internal.profiles.getForOwner, { ownerAuthUserId }))
+  } catch { return json({ message: 'Sign in to manage your profile.' }, 401) }
+}) })
+
+http.route({ path: '/api/owner/profile', method: 'PUT', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const input = await request.json() as Record<string, unknown>
+    await ctx.runMutation(internal.profiles.saveForOwner, {
+      ownerAuthUserId,
+      handle: typeof input.handle === 'string' ? input.handle : undefined,
+      displayName: typeof input.displayName === 'string' ? input.displayName : undefined,
+      bio: typeof input.bio === 'string' ? input.bio : undefined,
+      isPublic: input.isPublic === true,
+    })
+    return json({ updated: true })
+  } catch { return json({ message: 'We could not save that profile.' }, 400) }
 }) })
 
 http.route({ path: '/api/owner/ask-requests', method: 'GET', handler: httpAction(async (ctx) => {

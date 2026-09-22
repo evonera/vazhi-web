@@ -1,4 +1,4 @@
-import type { PlaceSearchResult, PublicAskRequest, RecommendationSubmission } from './contracts'
+import type { PlaceSearchResult, PublicAskRequest, PublicListing, PublicProfile, RecommendationSubmission } from './contracts'
 import { convexHTTPURL } from './convexConfig'
 
 const apiOrigin = convexHTTPURL
@@ -57,6 +57,20 @@ export const publicAskAPI = {
     return publicIngress<{ accepted: true }>('/api/recommendations', {
       method: 'POST',
       body: JSON.stringify({ slug, ...submission }),
+    })
+  },
+}
+
+export const publicGuideAPI = {
+  getProfile(handle: string) {
+    return request<PublicProfile>(`/api/profile?handle=${encodeURIComponent(handle)}`)
+  },
+  getListing(handle: string, slug: string) {
+    return request<PublicListing>(`/api/listing?handle=${encodeURIComponent(handle)}&slug=${encodeURIComponent(slug)}`)
+  },
+  reportListing(listingSlug: string, reason: string, detail?: string) {
+    return request<{ accepted: true }>('/api/reports', {
+      method: 'POST', body: JSON.stringify({ listingSlug, reason, detail }),
     })
   },
 }
