@@ -4,7 +4,7 @@ import worker, { type Env } from '../src/worker'
 function environment(overrides: Partial<Env> = {}): Env {
   return {
     ASSETS: {
-      fetch: async () => new Response('<!doctype html><title>Vazhi</title>', { headers: { 'content-type': 'text/html' } }),
+      fetch: async () => new Response(`<!doctype html><head><!-- vazhi:meta:start --><title>Vazhi — Ask the Way</title><!-- vazhi:meta:end --></head>`, { headers: { 'content-type': 'text/html' } }),
     },
     ...overrides,
   }
@@ -27,5 +27,40 @@ describe('Vazhi download route', () => {
 
     expect(response.status).toBe(200)
     await expect(response.text()).resolves.toContain('Vazhi')
+  })
+})
+
+describe('public metadata', () => {
+  it('injects one sanitised metadata set before SPA fallback handles a guide route', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      handle: 'rhea', title: 'Penang after dark', subtitle: 'A three-stop evening', disclaimer: 'Public version.',
+    }), { headers: { 'content-type': 'application/json' } })
+
+    try {
+      const response = await worker.fetch(new Request('https://vazhi.app/@rhea/penang-after-dark', {
+        headers: { accept: 'text/html' },
+      }), environment({ CONVEX_HTTP_URL: 'https://vazhi.convex.site' }))
+      const html = await response.text()
+
+      expect(html).toContain('Penang after dark · @rhea | Vazhi')
+      expect(html.match(/<title>/g)).toHaveLength(1)
+      expect(html).not.toContain('Vazhi — Ask the Way')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('does not cache an unavailable Ask card', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => new Response('Not found', { status: 404 })
+
+    try {
+      const response = await worker.fetch(new Request('https://vazhi.app/og/ask/missing'), environment({ CONVEX_HTTP_URL: 'https://vazhi.convex.site' }))
+      expect(response.status).toBe(404)
+      expect(response.headers.get('cache-control')).toBeNull()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
