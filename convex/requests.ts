@@ -5,6 +5,7 @@ import { components } from './_generated/api'
 import { authComponent } from './betterAuth/auth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
+import { toOwnerAskRequest, toPublicAskRequest } from './askProjections'
 
 const category = v.union(
   v.literal('food'), v.literal('hidden_spot'), v.literal('stay'),
@@ -55,7 +56,7 @@ export const create = mutation({
     const journeyId = existingJourney?._id ?? await ctx.db.insert('journeys', { ownerAuthUserId, localID: args.localJourneyID, title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, askRequestCount: 0, openAskRequestCount: 0, recommendationCount: 0, pendingRecommendationCount: 0, updatedAt: now })
     if (existingJourney) await ctx.db.patch(existingJourney._id, { title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, updatedAt: now })
     const requestSlug = slug()
-    const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId, journeyId, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', recommendationCount: 0, pendingRecommendationCount: 0, createdAt: now })
+    const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId, journeyId, localJourneyID: args.localJourneyID, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', recommendationCount: 0, pendingRecommendationCount: 0, createdAt: now })
     await ctx.db.patch(journeyId, { askRequestCount: (existingJourney?.askRequestCount ?? 0) + 1, openAskRequestCount: (existingJourney?.openAskRequestCount ?? 0) + 1, updatedAt: now })
     return { id: requestId, slug: requestSlug, status: 'open' as const }
   },
@@ -125,7 +126,10 @@ export const setRecommendationStatus = mutation({
     if (!recommendation) throw new ConvexError('Recommendation not found.')
     const request = await ctx.db.get(recommendation.askRequestId)
     if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Recommendation not found.')
-    await ctx.db.patch(recommendation._id, { status: args.status })
+    await ctx.db.patch(recommendation._id, {
+      status: args.status,
+      acceptedAt: args.status === 'accepted' && recommendation.status !== 'accepted' ? Date.now() : recommendation.acceptedAt,
+    })
     if (recommendation.status === 'pending' && args.status !== 'pending') {
       const journey = await ctx.db.get(request.journeyId)
       await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, request.pendingRecommendationCount - 1) })
@@ -142,6 +146,7 @@ export const createPathFromAccepted = mutation({
     const request = await ctx.db.get(args.requestId)
     if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Request not found.')
     const accepted = await ctx.db.query('recommendations').withIndex('by_askRequestId_and_status_and_submittedAt', (q) => q.eq('askRequestId', request._id).eq('status', 'accepted')).order('asc').take(100)
+    accepted.sort((left, right) => (left.acceptedAt ?? left.submittedAt) - (right.acceptedAt ?? right.submittedAt))
     if (accepted.length === 0) throw new ConvexError('Accept at least one recommendation first.')
     const pathId = await ctx.db.insert('paths', { ownerAuthUserId, journeyId: request.journeyId, title: args.title, status: 'draft', createdAt: Date.now() })
     for (const [orderIndex, recommendation] of accepted.entries()) {
@@ -156,7 +161,7 @@ export const getPublicBySlug = internalQuery({
   handler: async (ctx, args) => {
     const request = await ctx.db.query('askRequests').withIndex('by_slug', (q) => q.eq('slug', args.slug)).unique()
     if (!request) return null
-    return { slug: request.slug, prompt: request.prompt, destination: request.destination, journeyTitle: request.journeyTitle, status: request.status }
+    return toPublicAskRequest(request)
   },
 })
 
@@ -198,7 +203,7 @@ export const createForOwner = internalMutation({
     const journeyId = existingJourney?._id ?? await ctx.db.insert('journeys', { ownerAuthUserId: args.ownerAuthUserId, localID: args.localJourneyID, title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, askRequestCount: 0, openAskRequestCount: 0, recommendationCount: 0, pendingRecommendationCount: 0, updatedAt: now })
     if (existingJourney) await ctx.db.patch(existingJourney._id, { title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, updatedAt: now })
     const requestSlug = slug()
-    const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId: args.ownerAuthUserId, journeyId, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', recommendationCount: 0, pendingRecommendationCount: 0, createdAt: now })
+    const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId: args.ownerAuthUserId, journeyId, localJourneyID: args.localJourneyID, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', recommendationCount: 0, pendingRecommendationCount: 0, createdAt: now })
     await ctx.db.patch(journeyId, { askRequestCount: (existingJourney?.askRequestCount ?? 0) + 1, openAskRequestCount: (existingJourney?.openAskRequestCount ?? 0) + 1, updatedAt: now })
     return {
       id: requestId,
@@ -237,7 +242,10 @@ export const setRecommendationStatusForOwner = internalMutation({
     if (!recommendation) throw new ConvexError('Recommendation not found.')
     const request = await ctx.db.get(recommendation.askRequestId)
     if (!request || request.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Recommendation not found.')
-    await ctx.db.patch(recommendation._id, { status: args.status })
+    await ctx.db.patch(recommendation._id, {
+      status: args.status,
+      acceptedAt: args.status === 'accepted' && recommendation.status !== 'accepted' ? Date.now() : recommendation.acceptedAt,
+    })
     if (recommendation.status === 'pending' && args.status !== 'pending') {
       const journey = await ctx.db.get(request.journeyId)
       await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, request.pendingRecommendationCount - 1) })
@@ -251,21 +259,16 @@ export const listForOwner = internalQuery({
   args: { ownerAuthUserId: v.string() },
   handler: async (ctx, args) => {
     const requests = await ctx.db.query('askRequests').withIndex('by_ownerAuthUserId_and_createdAt', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId)).order('desc').take(50)
-    // The local UUID is owner-only metadata. Returning it here lets the native
-    // app reconnect a durable request to its offline SwiftData Journey after a
-    // relaunch, without making it part of a public request projection.
-    return Promise.all(requests.map(async (request) => {
-      const journey = await ctx.db.get(request.journeyId)
-      return {
-        id: request._id,
-        localJourneyID: journey?.localID,
-        slug: request.slug,
-        prompt: request.prompt,
-        destination: request.destination,
-        status: request.status,
-        createdAt: request.createdAt,
-        recommendationCount: request.recommendationCount,
-      }
+    return requests.map((request) => toOwnerAskRequest({
+      id: String(request._id),
+      localJourneyID: request.localJourneyID,
+      slug: request.slug,
+      prompt: request.prompt,
+      destination: request.destination,
+      journeyTitle: request.journeyTitle,
+      status: request.status,
+      createdAt: request.createdAt,
+      recommendationCount: request.recommendationCount,
     }))
   },
 })
