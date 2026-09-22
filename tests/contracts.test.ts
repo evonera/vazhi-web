@@ -51,4 +51,10 @@ describe('Ask the Way response boundary', () => {
     expect(toPublicAskRequest(request)).not.toHaveProperty('localJourneyID')
     expect(toPublicAskRequest(request)).not.toHaveProperty('id')
   })
+
+  it('keeps legacy owner requests readable during the staged schema migration', () => {
+    const legacyRequest = { ...request, localJourneyID: undefined }
+    expect(toOwnerAskRequest(legacyRequest)).toHaveProperty('localJourneyID', undefined)
+    expect(toPublicAskRequest(legacyRequest)).not.toHaveProperty('localJourneyID')
+  })
 })

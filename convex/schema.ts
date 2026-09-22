@@ -38,7 +38,9 @@ export default defineSchema({
     journeyId: v.id('journeys'),
     // The immutable device-side UUID joins an authenticated request back to a
     // local SwiftData Journey. It never appears in a public projection.
-    localJourneyID: v.string(),
+    // Optional during the staged migration: legacy request rows resolve this
+    // from their Journey in listForOwner. New rows always write the value.
+    localJourneyID: v.optional(v.string()),
     slug: v.string(),
     prompt: v.string(),
     destination: v.string(),
