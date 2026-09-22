@@ -1,7 +1,9 @@
 import { ConvexError, v } from 'convex/values'
-import { internalAction, internalQuery } from './_generated/server'
+import { internalAction, internalMutation, internalQuery } from './_generated/server'
 
 const waypoint = v.object({ latitude: v.number(), longitude: v.number() })
+const travelMode = v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE'), v.literal('TRANSIT'))
+const snapshot = v.object({ distanceMeters: v.number(), duration: v.string(), encodedPolyline: v.string(), legs: v.array(v.object({ distanceMeters: v.number(), duration: v.string() })), generatedAt: v.number() })
 
 /**
  * Route coordinates are loaded from the owner's stored Path. An HTTP caller
@@ -15,6 +17,28 @@ export const storedStopsForOwner = internalQuery({
     if (!path || path.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Path not found.')
     const stops = await ctx.db.query('pathStops').withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', path._id)).order('asc').take(26)
     return stops.map((stop) => ({ latitude: stop.place.latitude, longitude: stop.place.longitude }))
+  },
+})
+
+export const saveSnapshotForOwner = internalMutation({
+  args: { ownerAuthUserId: v.string(), pathId: v.id('paths'), travelMode, snapshot },
+  handler: async (ctx, args) => {
+    const path = await ctx.db.get(args.pathId)
+    if (!path || path.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Path not found.')
+    const existing = await ctx.db.query('routeSnapshots').withIndex('by_ownerAuthUserId_and_pathId_and_travelMode', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('pathId', args.pathId).eq('travelMode', args.travelMode)).unique()
+    const value = { ...args.snapshot, ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId, travelMode: args.travelMode, expiresAt: args.snapshot.generatedAt + 5 * 60 * 1_000 }
+    if (existing) { await ctx.db.replace(existing._id, value); return existing._id }
+    return ctx.db.insert('routeSnapshots', value)
+  },
+})
+
+export const latestSnapshotForOwner = internalQuery({
+  args: { ownerAuthUserId: v.string(), pathId: v.id('paths'), travelMode },
+  handler: async (ctx, args) => {
+    const path = await ctx.db.get(args.pathId)
+    if (!path || path.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Path not found.')
+    const result = await ctx.db.query('routeSnapshots').withIndex('by_ownerAuthUserId_and_pathId_and_travelMode', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('pathId', args.pathId).eq('travelMode', args.travelMode)).unique()
+    return result && result.expiresAt > Date.now() ? result : null
   },
 })
 

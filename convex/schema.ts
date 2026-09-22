@@ -97,6 +97,20 @@ export default defineSchema({
     notes: v.string(),
   }).index('by_pathId_and_orderIndex', ['pathId', 'orderIndex']),
 
+  // Derived Google Routes data only. A short expiry prevents a route result
+  // from becoming an authoritative itinerary after stops are edited.
+  routeSnapshots: defineTable({
+    ownerAuthUserId: v.string(),
+    pathId: v.id('paths'),
+    travelMode: v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE'), v.literal('TRANSIT')),
+    distanceMeters: v.number(),
+    duration: v.string(),
+    encodedPolyline: v.string(),
+    legs: v.array(v.object({ distanceMeters: v.number(), duration: v.string() })),
+    generatedAt: v.number(),
+    expiresAt: v.number(),
+  }).index('by_ownerAuthUserId_and_pathId_and_travelMode', ['ownerAuthUserId', 'pathId', 'travelMode']),
+
   syncedOutboxJobs: defineTable({
     ownerAuthUserId: v.string(),
     jobId: v.string(),

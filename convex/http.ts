@@ -388,7 +388,9 @@ http.route({ path: '/api/owner/routes', method: 'POST', handler: httpAction(asyn
     const input = await request.json() as { pathID?: string; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' | 'TRANSIT' }
     const stops = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId, pathId: input.pathID ?? '' } as never)
     const travelMode = input.travelMode ?? 'DRIVE'
-    return json(await ctx.runAction(internal.routes.compute, { stops, travelMode }))
+    const route = await ctx.runAction(internal.routes.compute, { stops, travelMode })
+    await ctx.runMutation(internal.routes.saveSnapshotForOwner, { ownerAuthUserId, pathId: input.pathID ?? '', travelMode, snapshot: route } as never)
+    return json(route)
   } catch {
     return json({ message: 'This route is unavailable. You can still edit your Path.' }, 400)
   }
@@ -405,8 +407,8 @@ http.route({ path: '/api/owner/routes/refresh', method: 'POST', handler: httpAct
       return json({ message: 'That refresh request is invalid.' }, 400)
     }
     return json(await ctx.runMutation(internal.background.enqueueRouteSnapshotRefresh, {
-      ownerAuthUserId, idempotencyKey: input.idempotencyKey, stops, travelMode: input.travelMode ?? 'DRIVE',
-    }))
+      ownerAuthUserId, idempotencyKey: input.idempotencyKey, pathId: input.pathID ?? '', travelMode: input.travelMode ?? 'DRIVE',
+    } as never))
   } catch {
     return json({ message: 'This route refresh is unavailable. You can still edit your Path.' }, 400)
   }

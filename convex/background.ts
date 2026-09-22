@@ -17,7 +17,8 @@ const backgroundWorkpool = new Workpool(components.backgroundWorkpool, {
 
 export const refreshRouteSnapshot = internalAction({
   args: {
-    stops: v.array(waypoint),
+    ownerAuthUserId: v.string(),
+    pathId: v.id('paths'),
     travelMode,
   },
   handler: async (ctx, args) => {
@@ -25,7 +26,9 @@ export const refreshRouteSnapshot = internalAction({
     // not return the polyline to Workpool's status store; it may contain a
     // private route. A future approved-public route can persist its own safe
     // projection from this action.
-    await ctx.runAction(internal.routes.compute, args)
+    const stops = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId })
+    const route = await ctx.runAction(internal.routes.compute, { stops, travelMode: args.travelMode })
+    await ctx.runMutation(internal.routes.saveSnapshotForOwner, { ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId, travelMode: args.travelMode, snapshot: route })
     return null
   },
 })
@@ -51,7 +54,7 @@ export const enqueueRouteSnapshotRefresh = internalMutation({
   args: {
     ownerAuthUserId: v.string(),
     idempotencyKey: v.string(),
-    stops: v.array(waypoint),
+    pathId: v.id('paths'),
     travelMode,
   },
   handler: async (ctx, args) => {
@@ -70,7 +73,8 @@ export const enqueueRouteSnapshotRefresh = internalMutation({
       createdAt: Date.now(),
     })
     await backgroundWorkpool.enqueueAction(ctx, internal.background.refreshRouteSnapshot, {
-      stops: args.stops,
+      ownerAuthUserId: args.ownerAuthUserId,
+      pathId: args.pathId,
       travelMode: args.travelMode,
     }, {
       retry: true,
