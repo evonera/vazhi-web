@@ -146,6 +146,22 @@ export default defineSchema({
     createdAt: v.number(),
   }).index('by_ownerAuthUserId_and_createdAt', ['ownerAuthUserId', 'createdAt']),
 
+  // A redacted server-side receipt of a verified provider event. Never store
+  // its raw body, subscriber attributes, aliases, price, country, transaction
+  // IDs, or a provider secret. It supports support/quota diagnostics only;
+  // native RevenueCat CustomerInfo decides a user's entitlement.
+  providerEvents: defineTable({
+    source: v.literal('revenuecat'),
+    eventID: v.string(),
+    eventType: v.string(),
+    occurredAt: v.number(),
+    appUserID: v.optional(v.string()),
+    environment: v.optional(v.string()),
+    store: v.optional(v.string()),
+    entitlementIDs: v.array(v.string()),
+    receivedAt: v.number(),
+  }).index('by_source_and_eventID', ['source', 'eventID']),
+
   // An idempotency receipt for low-priority work. Arguments, route polylines,
   // and source content belong in the work item/action, never in this log.
   backgroundJobs: defineTable({

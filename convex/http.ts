@@ -4,6 +4,7 @@ import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
+import { parseRevenueCatWebhook, verifyRevenueCatWebhookSignature } from '../src/lib/revenuecatWebhook'
 
 const http = httpRouter()
 
@@ -115,6 +116,35 @@ http.route({ path: '/api/reports', method: 'POST', handler: httpAction(async (ct
     })
   } catch { /* Return a generic receipt; reports are not an existence oracle. */ }
   return json({ accepted: true })
+}) })
+
+// Configure the signing secret in the RevenueCat dashboard and as a Convex
+// deployment environment variable before registering this endpoint. It fails
+// closed while unconfigured, and authenticates the untouched raw JSON before
+// parsing it. A receipt is a support/quota projection—not entitlement state.
+http.route({ path: '/webhooks/revenuecat', method: 'POST', handler: httpAction(async (ctx, request) => {
+  const signingSecret = process.env.REVENUECAT_WEBHOOK_SIGNING_SECRET
+  if (!signingSecret) return json({ message: 'Webhook endpoint is not configured.' }, 503)
+
+  const rawBody = await request.text()
+  const isAuthentic = await verifyRevenueCatWebhookSignature({
+    rawBody,
+    signatureHeader: request.headers.get('x-revenuecat-webhook-signature'),
+    signingSecret,
+  })
+  if (!isAuthentic) return json({ message: 'Webhook signature is invalid.' }, 401)
+
+  const event = parseRevenueCatWebhook(rawBody)
+  if (!event) return json({ message: 'Webhook payload is invalid.' }, 400)
+
+  try {
+    await ctx.runMutation(internal.providerEvents.recordRevenueCat, event)
+    return json({ accepted: true })
+  } catch {
+    // A non-2xx response makes RevenueCat retry this event. Event ID
+    // deduplication ensures a later delivery is safe.
+    return json({ message: 'Webhook receipt is temporarily unavailable.' }, 503)
+  }
 }) })
 
 http.route({ path: '/api/owner/ask-requests', method: 'POST', handler: httpAction(async (ctx, request) => {
