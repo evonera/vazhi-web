@@ -105,6 +105,8 @@ describe('public write ingress', () => {
         signatureHeader: new Headers(init?.headers).get('x-vazhi-edge-signature'),
         signingSecret: 'edge-secret',
       })).resolves.toBe(true)
+      expect(new Headers(init?.headers).get('x-vazhi-rate-key')).toMatch(/^[a-f0-9]{64}$/)
+      expect(new Headers(init?.headers).get('cf-connecting-ip')).toBeNull()
       return new Response(JSON.stringify({ accepted: true }), { headers: { 'content-type': 'application/json' } })
     }
     try {
@@ -115,6 +117,7 @@ describe('public write ingress', () => {
         VAZHI_ENVIRONMENT: 'preview',
         TURNSTILE_SECRET_KEY: 'turnstile-secret',
         EDGE_INGRESS_SIGNING_SECRET: 'edge-secret',
+        RATE_LIMIT_SALT: 'rate-limit-secret',
       }))
       expect(calls).toBe(2)
       await expect(response.json()).resolves.toEqual({ accepted: true })

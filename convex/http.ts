@@ -5,7 +5,7 @@ import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
 import { parseRevenueCatWebhook, verifyRevenueCatWebhookSignature } from '../src/lib/revenuecatWebhook'
 import { identifiedWebPurchaseLink } from '../src/lib/webPurchaseLink'
-import { developmentIngressSalt } from '../src/lib/publicIngress'
+import { developmentIngressSalt, opaqueRateLimitKey } from '../src/lib/publicIngress'
 import { verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
 
 const http = httpRouter()
@@ -23,11 +23,11 @@ function escapeXML(value: string) {
 async function requestBucket(request: Request) {
   // Unknown deployments fail closed. A predictable local salt is acceptable
   // only for the explicitly marked development deployment.
+  const forwarded = request.headers.get('x-vazhi-rate-key')
+  if (forwarded && /^[a-f0-9]{64}$/i.test(forwarded)) return forwarded
   const salt = developmentIngressSalt(process.env.VAZHI_ENVIRONMENT, process.env.RATE_LIMIT_SALT)
   if (!salt) throw new Error('Public ingress is not configured.')
-  const input = `${salt}:${request.headers.get('cf-connecting-ip') ?? 'unknown'}`
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return opaqueRateLimitKey(request.headers.get('cf-connecting-ip'), salt)
 }
 
 async function requireOwnerAuthUserId(ctx: ActionCtx) {

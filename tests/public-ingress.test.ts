@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { developmentIngressSalt, mayBypassTurnstile } from '../src/lib/publicIngress'
+import { developmentIngressSalt, mayBypassTurnstile, opaqueRateLimitKey } from '../src/lib/publicIngress'
 
 describe('public ingress configuration', () => {
   it('uses a configured rate-limit salt in every environment', () => {
@@ -20,5 +20,13 @@ describe('public ingress configuration', () => {
     expect(mayBypassTurnstile(undefined, undefined)).toBe(false)
     expect(mayBypassTurnstile('preview', undefined)).toBe(false)
     expect(mayBypassTurnstile('development', 'turnstile-secret')).toBe(false)
+  })
+
+  it('derives a stable, opaque HMAC key without returning the IP', async () => {
+    const first = await opaqueRateLimitKey('203.0.113.42', 'rate-limit-secret')
+    await expect(opaqueRateLimitKey('203.0.113.42', 'rate-limit-secret')).resolves.toBe(first)
+    await expect(opaqueRateLimitKey('203.0.113.43', 'rate-limit-secret')).resolves.not.toBe(first)
+    expect(first).toMatch(/^[a-f0-9]{64}$/)
+    expect(first).not.toContain('203.0.113.42')
   })
 })

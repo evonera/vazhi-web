@@ -1,4 +1,5 @@
 import { edgeIngressSignature } from './lib/edgeIngressSignature'
+import { opaqueRateLimitKey } from './lib/publicIngress'
 
 interface AssetFetcher {
   fetch(request: Request): Promise<Response>
@@ -8,6 +9,7 @@ export interface Env {
   ASSETS: AssetFetcher
   CONVEX_HTTP_URL?: string
   EDGE_INGRESS_SIGNING_SECRET?: string
+  RATE_LIMIT_SALT?: string
   TURNSTILE_SECRET_KEY?: string
   VAZHI_ENVIRONMENT?: string
   IOS_APP_STORE_URL?: string
@@ -89,9 +91,10 @@ async function forwardPublicWrite(path: '/api/recommendations' | '/api/reports',
   let input: Record<string, unknown>
   try { input = JSON.parse(rawBody) as Record<string, unknown> } catch { return json({ message: 'Check the form and try again.' }, 400) }
   if (!await turnstilePasses(input, request, env)) return json({ message: 'Please complete the verification and try again.' }, 400)
-  if (!env.EDGE_INGRESS_SIGNING_SECRET && env.VAZHI_ENVIRONMENT !== 'development') return json({ message: 'This request is unavailable.' }, 503)
+  if ((!env.EDGE_INGRESS_SIGNING_SECRET || !env.RATE_LIMIT_SALT) && env.VAZHI_ENVIRONMENT !== 'development') return json({ message: 'This request is unavailable.' }, 503)
   const headers = new Headers({ 'content-type': 'application/json' })
   if (env.EDGE_INGRESS_SIGNING_SECRET) headers.set('x-vazhi-edge-signature', await edgeIngressSignature(rawBody, env.EDGE_INGRESS_SIGNING_SECRET))
+  if (env.RATE_LIMIT_SALT) headers.set('x-vazhi-rate-key', await opaqueRateLimitKey(request.headers.get('cf-connecting-ip'), env.RATE_LIMIT_SALT))
   const response = await fetch(`${env.CONVEX_HTTP_URL.replace(/\/$/, '')}${path}`, { method: 'POST', headers, body: rawBody })
   return new Response(response.body, { status: response.status, headers: { 'content-type': response.headers.get('content-type') ?? 'application/json', 'cache-control': 'no-store' } })
 }
