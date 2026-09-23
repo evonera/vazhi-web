@@ -11,7 +11,9 @@ const downloadURL = typeof window === 'undefined' ? 'https://vazhi.app/download'
 
 function currentSlug(): string | null { return window.location.pathname.match(/^\/ask\/([^/]+)$/)?.[1] ?? null }
 function currentProfileRoute(): { handle: string; slug?: string } | null {
-  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,24})(?:\/([a-z0-9-]{3,64}))?\/?$/i)
+  let pathname: string
+  try { pathname = decodeURIComponent(window.location.pathname) } catch { return null }
+  const match = pathname.match(/^\/@([a-z0-9_]{3,24})(?:\/([a-z0-9-]{3,64}))?\/?$/i)
   return match ? { handle: match[1], slug: match[2] } : null
 }
 
@@ -19,7 +21,11 @@ export function App() {
   const slug = currentSlug()
   const profileRoute = currentProfileRoute()
   if (slug) return <AskPage slug={slug} />
-  if (profileRoute?.slug) return <PublicGuidePage handle={profileRoute.handle} slug={profileRoute.slug} />
+  if (profileRoute?.slug) {
+    const versionParameter = new URLSearchParams(window.location.search).get('version')
+    const version = versionParameter === null ? undefined : Number(versionParameter)
+    return <PublicGuidePage handle={profileRoute.handle} slug={profileRoute.slug} versionNumber={version} />
+  }
   if (profileRoute) return <PublicProfilePage handle={profileRoute.handle} />
   if (window.location.pathname === '/privacy') return <LegalPage title="Privacy" />
   if (window.location.pathname === '/terms') return <LegalPage title="Terms" />
@@ -86,9 +92,9 @@ function PublicProfilePage({ handle }: { handle: string }) {
   return <main className="guide-page"><SiteHeader /><section className="guide-profile"><p className="section-label">@{profile.handle}</p><h1>{profile.displayName ?? `@${profile.handle}`}</h1>{profile.bio && <p className="lede">{profile.bio}</p>}<p className="guide-privacy">Only owner-approved, versioned guides appear here. Private journals stay private.</p><div className="guide-list">{profile.listings.length === 0 ? <p>No public guides yet.</p> : profile.listings.map((listing) => <a className="guide-listing" key={listing.slug} href={`/@${profile.handle}/${listing.slug}`}><p className="section-label">{listing.stopCount} stops · versioned guide</p><h2>{listing.title}</h2>{listing.subtitle && <p>{listing.subtitle}</p>}<span>Open guide ↗</span></a>)}</div></section><SiteFooter /></main>
 }
 
-function PublicGuidePage({ handle, slug }: { handle: string; slug: string }) {
+function PublicGuidePage({ handle, slug, versionNumber }: { handle: string; slug: string; versionNumber?: number }) {
   const [listing, setListing] = useState<PublicListing | null>(null); const [error, setError] = useState<string | null>(null); const [reporting, setReporting] = useState(false); const [reported, setReported] = useState(false)
-  useEffect(() => { publicGuideAPI.getListing(handle, slug).then(setListing).catch(() => setError('This guide is unavailable.')) }, [handle, slug])
+  useEffect(() => { publicGuideAPI.getListing(handle, slug, versionNumber).then(setListing).catch(() => setError('This guide is unavailable.')) }, [handle, slug, versionNumber])
   if (error) return <UnavailableGuide />
   if (!listing) return <main className="route-page route-page--centered"><p>Opening guide…</p></main>
   return <main className="guide-page"><SiteHeader /><article className="guide-detail"><p className="section-label">@{listing.handle} · version {listing.versionNumber}</p><h1>{listing.title}</h1>{listing.subtitle && <p className="lede">{listing.subtitle}</p>}<p className="guide-disclaimer">{listing.disclaimer}</p><ol className="guide-stops">{listing.stops.map((stop) => <li key={stop.orderIndex}><p className="section-label">Stop {stop.orderIndex + 1}{stop.isApproximateLocation ? ' · approximate location' : ''}</p><h2>{stop.title}</h2>{(stop.placeName || stop.locality) && <p className="guide-place">{stop.placeName ?? stop.locality}</p>}{stop.notes && <p>{stop.notes}</p>}</li>)}</ol><button className="text-link" onClick={() => setReporting(true)}>Report this guide</button>{reporting && <form className="report-form" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void publicGuideAPI.reportListing(listing.slug, String(form.get('reason') ?? ''), String(form.get('detail') ?? '')).then(() => { setReported(true); setReporting(false) }) }}><label>Reason<select name="reason" required defaultValue=""><option value="" disabled>Select a reason</option><option>Private or sensitive location</option><option>Copyright or impersonation</option><option>Unsafe or misleading travel information</option><option>Other</option></select></label><label>Details <span className="optional">optional</span><textarea name="detail" maxLength={1000} /></label><button className="button button--submit">Send report</button></form>}{reported && <p className="form-success" role="status">Thanks — your report was received.</p>}</article><SiteFooter /></main>
