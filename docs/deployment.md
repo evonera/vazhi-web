@@ -16,19 +16,22 @@ rate-limit secrets. The production and preview public form currently rejects an
 unverified submission before it reaches Convex.
 
 Google Maps Platform billing is linked to `vazhi-509423`, and **Places API
-(New)** and **Routes API** are enabled. An earlier Places Text Search returned
-`API_KEY_SERVICE_BLOCKED` while billing was not linked to Vazhi. Billing has
-since been linked; that earlier error does not establish that the key belonged
-to another project, and no live Maps request has been repeated after the billing
-change. The previously supplied key was removed from both Convex deployments.
-The current Google Cloud Credentials page for `vazhi-509423` lists no API keys,
-and both Convex deployments are missing `GOOGLE_PLACES_API_KEY` and
-`GOOGLE_ROUTES_API_KEY`. **Do not call either deployment release-ready until a
-key from `vazhi-509423` is configured in both Convex deployments, restricted to
-Places API (New) and Routes API, and both operations pass live smoke tests.**
-The key belongs in Convex secrets only, never in Worker variables, a browser
-bundle, an iOS app, or Git. Rotate the previously shared key if it is restored
-or used during migration.
+(New)** and **Routes API** are enabled there. The initially supplied key was
+owned by a different Google Cloud project (the Places API returned
+`API_KEY_SERVICE_BLOCKED`); it was not added to Vazhi's credentials. A new key
+was created in `vazhi-509423`, restricted to Places API (New) and Routes API,
+and stored in Convex production under both `GOOGLE_PLACES_API_KEY` and
+`GOOGLE_ROUTES_API_KEY`. Live smoke requests to Places Text Search and Routes
+Compute Routes both returned HTTP 200. The production environment currently
+uses one combined key for both settings; separate API/environment keys can be
+introduced later for independent rotation and quota control. The earlier key
+was replaced in Convex production but has **not** been revoked in its original
+Google Cloud project. Revoke it there once confirmed unused.
+
+The Maps key belongs in Convex secrets only, never in Worker variables, a
+browser bundle, an iOS app, or Git. A passing Maps smoke test does not mean the
+whole product is release-ready: Apple sign-in, Turnstile, required production
+secrets, and end-to-end flows still need their own release checks.
 The native `/api/owner/places/search` route is authenticated and rate-limited
 before its Google call; the public Ask search remains a separately signed,
 slug-scoped Worker route. Native guests use Apple Maps search or a named pin
