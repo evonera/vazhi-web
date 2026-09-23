@@ -25,6 +25,12 @@ set to a key owned by `vazhi-509423`, restricted to
 Places API (New) and Routes API, and both operations pass live smoke tests.**
 The key belongs in Convex secrets only, never in Worker variables, a browser
 bundle, an iOS app, or Git. Rotate the user-shared key after migration.
+The native `/api/owner/places/search` route is authenticated and rate-limited
+before its Google call; the public Ask search remains a separately signed,
+slug-scoped Worker route. Native guests use Apple Maps search or a named pin
+and never receive a Google API key. The native build still needs its
+environment-specific `ASK_THE_WAY_API_BASE_URL` pointed at the matching Convex
+site endpoint after Apple sign-in credentials are provisioned.
 
 The following are deliberately absent until their providers are ready:
 

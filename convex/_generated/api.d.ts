@@ -14,6 +14,7 @@ import type * as background from "../background.js";
 import type * as http from "../http.js";
 import type * as listings from "../listings.js";
 import type * as migrations from "../migrations.js";
+import type * as placeLimits from "../placeLimits.js";
 import type * as places from "../places.js";
 import type * as profiles from "../profiles.js";
 import type * as providerEvents from "../providerEvents.js";
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   listings: typeof listings;
   migrations: typeof migrations;
+  placeLimits: typeof placeLimits;
   places: typeof places;
   profiles: typeof profiles;
   providerEvents: typeof providerEvents;

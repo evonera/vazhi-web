@@ -7,6 +7,7 @@ import { parseRevenueCatWebhook, verifyRevenueCatWebhookSignature } from '../src
 import { identifiedWebPurchaseLink } from '../src/lib/webPurchaseLink'
 import { developmentIngressSalt, opaqueRateLimitKey } from '../src/lib/publicIngress'
 import { verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
+import { toNativePlace } from '../src/lib/nativePlaceProjection'
 
 const http = httpRouter()
 
@@ -364,6 +365,29 @@ http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (
     })
     const result = await ctx.runAction(internal.places.search, { query: input.query ?? '', destination })
     return json(result)
+  } catch {
+    return json({ message: 'Place search is temporarily unavailable.' }, 503)
+  }
+}) })
+
+// Native search is an owner-only, quota-limited endpoint. Guests use MapKit
+// search and can always save an explicitly named pin without a cloud account.
+http.route({ path: '/api/owner/places/search', method: 'POST', handler: httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
+  try { ownerAuthUserId = String((await authComponent.getAuthUser(ctx))._id) } catch {
+    return json({ message: 'Sign in to search Google places.' }, 401)
+  }
+  let input: unknown
+  try { input = await request.json() } catch { return json({ message: 'Enter a place to search.' }, 400) }
+  const query = input && typeof input === 'object' && 'query' in input && typeof input.query === 'string'
+    ? input.query.trim() : ''
+  if (query.length < 3 || query.length > 100) return json({ message: 'Enter 3–100 characters to search.' }, 400)
+  try { await ctx.runMutation(internal.placeLimits.consumeOwnerSearch, { ownerAuthUserId }) } catch {
+    return json({ message: 'Place search limit reached. Try again later.' }, 429)
+  }
+  try {
+    const places = await ctx.runAction(internal.places.search, { query, destination: '' })
+    return json(places.map(toNativePlace))
   } catch {
     return json({ message: 'Place search is temporarily unavailable.' }, 503)
   }
