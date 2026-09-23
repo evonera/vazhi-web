@@ -41,8 +41,9 @@ export const publicGuideAPI = {
   getProfile(handle: string) {
     return request<PublicProfile>(`/api/profile?handle=${encodeURIComponent(handle)}`)
   },
-  getListing(handle: string, slug: string) {
-    return request<PublicListing>(`/api/listing?handle=${encodeURIComponent(handle)}&slug=${encodeURIComponent(slug)}`)
+  getListing(handle: string, slug: string, versionNumber?: number) {
+    const version = versionNumber === undefined ? '' : `&version=${encodeURIComponent(String(versionNumber))}`
+    return request<PublicListing>(`/api/listing?handle=${encodeURIComponent(handle)}&slug=${encodeURIComponent(slug)}${version}`)
   },
   reportListing(listingSlug: string, reason: string, detail?: string) {
     return request<{ accepted: true }>('/api/reports', {
