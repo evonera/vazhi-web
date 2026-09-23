@@ -16,15 +16,19 @@ rate-limit secrets. The production and preview public form currently rejects an
 unverified submission before it reaches Convex.
 
 Google Maps Platform billing is linked to `vazhi-509423`, and **Places API
-(New)** and **Routes API** are enabled. The first supplied key was created in
-a different Google Cloud project: a real Routes call succeeded, but Places
-Text Search returned `API_KEY_SERVICE_BLOCKED`. It was removed from both
-Convex deployments after this diagnostic. **Do not call either deployment
-release-ready until `GOOGLE_PLACES_API_KEY` and `GOOGLE_ROUTES_API_KEY` are
-set to a key owned by `vazhi-509423`, restricted to
+(New)** and **Routes API** are enabled. An earlier Places Text Search returned
+`API_KEY_SERVICE_BLOCKED` while billing was not linked to Vazhi. Billing has
+since been linked; that earlier error does not establish that the key belonged
+to another project, and no live Maps request has been repeated after the billing
+change. The previously supplied key was removed from both Convex deployments.
+The current Google Cloud Credentials page for `vazhi-509423` lists no API keys,
+and both Convex deployments are missing `GOOGLE_PLACES_API_KEY` and
+`GOOGLE_ROUTES_API_KEY`. **Do not call either deployment release-ready until a
+key from `vazhi-509423` is configured in both Convex deployments, restricted to
 Places API (New) and Routes API, and both operations pass live smoke tests.**
 The key belongs in Convex secrets only, never in Worker variables, a browser
-bundle, an iOS app, or Git. Rotate the user-shared key after migration.
+bundle, an iOS app, or Git. Rotate the previously shared key if it is restored
+or used during migration.
 The native `/api/owner/places/search` route is authenticated and rate-limited
 before its Google call; the public Ask search remains a separately signed,
 slug-scoped Worker route. Native guests use Apple Maps search or a named pin
