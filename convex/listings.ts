@@ -207,18 +207,18 @@ export const listModerationQueue = internalQuery({
     const openReports = await ctx.db.query('reports')
       .withIndex('by_status_and_createdAt', (q) => q.eq('status', 'open'))
       .order('desc').take(100)
-    const reviewedReports = await ctx.db.query('reports')
-      .withIndex('by_status_and_createdAt', (q) => q.eq('status', 'reviewed'))
-      .order('desc').take(100)
+    const takenDownListings = await ctx.db.query('publicItineraryListings')
+      .withIndex('by_status_and_updatedAt', (q) => q.eq('status', 'takedown'))
+      .collect()
     const activeTakedownReports = []
-    for (const report of reviewedReports) {
-      if (!report.listingId) continue
-      const listing = await ctx.db.get(report.listingId)
-      if (listing?.status !== 'takedown') continue
+    for (const listing of takenDownListings) {
       const actions = await ctx.db.query('moderationActions')
-        .withIndex('by_reportId_and_createdAt', (q) => q.eq('reportId', report._id))
+        .withIndex('by_listingId_and_createdAt', (q) => q.eq('listingId', listing._id))
         .order('desc').take(1)
-      if (reportHasActiveTakedown(actions)) activeTakedownReports.push(report)
+      const latestAction = actions[0]
+      if (!latestAction || latestAction.action !== 'takedown' || !reportHasActiveTakedown(actions)) continue
+      const report = await ctx.db.get(latestAction.reportId)
+      if (report?.status === 'reviewed') activeTakedownReports.push(report)
     }
     const reports = [...openReports, ...activeTakedownReports]
     return Promise.all(reports.map(async (report) => {

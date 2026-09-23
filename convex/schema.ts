@@ -196,6 +196,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index('by_slug', ['slug'])
+    .index('by_status_and_updatedAt', ['status', 'updatedAt'])
     .index('by_ownerAuthUserId_and_localPathID', ['ownerAuthUserId', 'localPathID'])
     .index('by_ownerAuthUserId_and_status_and_updatedAt', ['ownerAuthUserId', 'status', 'updatedAt'])
     .index('by_ownerAuthUserId_and_visibility_and_status_and_updatedAt', ['ownerAuthUserId', 'visibility', 'status', 'updatedAt']),
