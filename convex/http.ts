@@ -192,6 +192,7 @@ http.route({ path: '/api/owner/listings', method: 'POST', handler: httpAction(as
       localPathID: typeof input.localPathID === 'string' ? input.localPathID : '',
       visibility: input.visibility,
       title: typeof input.title === 'string' ? input.title : '',
+      destination: typeof input.destination === 'string' ? input.destination : '',
       subtitle: typeof input.subtitle === 'string' ? input.subtitle : '',
       disclaimer: typeof input.disclaimer === 'string' ? input.disclaimer : '',
       approximateLocations: input.approximateLocations === true,
