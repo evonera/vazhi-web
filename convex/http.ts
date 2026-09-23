@@ -408,6 +408,7 @@ http.route({ path: '/api/owner/routes', method: 'POST', handler: httpAction(asyn
 http.route({ path: '/api/owner/routes/refresh', method: 'POST', handler: httpAction(async (ctx, request) => {
   let ownerAuthUserId: string
   try {
+    ownerAuthUserId = await requireOwnerAuthUserId(ctx)
   } catch {
     return json({ message: 'Sign in again to refresh this route.' }, 401)
   }

@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { internalMutation } from './_generated/server'
 
 const BATCH_SIZE = 25
+const MAX_COUNTER_BACKFILL_ROWS = 100
 
 /**
  * Claims pre-Better-Auth Ask-the-Way data for the same signed-in subject.
@@ -33,24 +34,34 @@ export const claimLegacyAskData = internalMutation({
     // leave the legacy indexes, so a later authenticated request advances to
     // the next bounded slice instead of rescanning the same records.
     for (const journey of journeyBatch.slice(0, BATCH_SIZE)) {
+      const journeyRequests = await ctx.db.query('askRequests')
+        .withIndex('by_journeyId_and_createdAt', (q) => q.eq('journeyId', journey._id))
+        .take(MAX_COUNTER_BACKFILL_ROWS + 1)
+      const exactRequestCount = journeyRequests.length <= MAX_COUNTER_BACKFILL_ROWS
       await ctx.db.patch(journey._id, {
         ownerAuthUserId: args.ownerAuthUserId,
         ownerTokenIdentifier: undefined,
-        askRequestCount: journey.askRequestCount ?? 0,
-        openAskRequestCount: journey.openAskRequestCount ?? 0,
-        recommendationCount: journey.recommendationCount ?? 0,
-        pendingRecommendationCount: journey.pendingRecommendationCount ?? 0,
+        ...(exactRequestCount ? {
+          askRequestCount: journeyRequests.length,
+          openAskRequestCount: journeyRequests.filter((request) => request.status === 'open').length,
+        } : {}),
       })
     }
 
     for (const request of requestBatch.slice(0, BATCH_SIZE)) {
       const journey = await ctx.db.get(request.journeyId)
+      const recommendations = await ctx.db.query('recommendations')
+        .withIndex('by_askRequestId_and_submittedAt', (q) => q.eq('askRequestId', request._id))
+        .take(MAX_COUNTER_BACKFILL_ROWS + 1)
+      const exactRecommendationCount = recommendations.length <= MAX_COUNTER_BACKFILL_ROWS
       await ctx.db.patch(request._id, {
         ownerAuthUserId: args.ownerAuthUserId,
         ownerTokenIdentifier: undefined,
         localJourneyID: request.localJourneyID ?? journey?.localID,
-        recommendationCount: request.recommendationCount ?? 0,
-        pendingRecommendationCount: request.pendingRecommendationCount ?? 0,
+        ...(exactRecommendationCount ? {
+          recommendationCount: recommendations.length,
+          pendingRecommendationCount: recommendations.filter((item) => item.status === 'pending').length,
+        } : {}),
       })
     }
 
