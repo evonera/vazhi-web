@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import { ownerMayTransitionListingStatus, reportHasActiveTakedown } from '../convex/moderationPolicy'
 import { acceptPublicReport } from '../convex/publicReportReceipt'
+import { parseModerationPagination } from '../convex/moderationPagination'
 
 describe('moderation policy', () => {
+  it('bounds each moderation queue page and keeps independent cursors', () => {
+    const pagination = parseModerationPagination(new URL('https://vazhi.app/api/admin/reports?limit=500&openCursor=open-next&takedownCursor=taken-next'))
+    expect(pagination).toEqual({
+      openReportsPagination: { numItems: 100, cursor: 'open-next' },
+      takedownListingsPagination: { numItems: 100, cursor: 'taken-next' },
+    })
+  })
+
+  it('uses a safe default page size and ignores oversized cursors', () => {
+    const pagination = parseModerationPagination(new URL(`https://vazhi.app/api/admin/reports?openCursor=${'x'.repeat(2001)}`))
+    expect(pagination.openReportsPagination).toEqual({ numItems: 25, cursor: null })
+    expect(pagination.takedownListingsPagination).toEqual({ numItems: 25, cursor: null })
+  })
+
   it('allows new and archived listings but does not let owners reverse moderator takedowns', () => {
     expect(ownerMayTransitionListingStatus(undefined)).toBe(true)
     expect(ownerMayTransitionListingStatus('published')).toBe(true)

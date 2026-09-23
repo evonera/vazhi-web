@@ -5,6 +5,7 @@ import { authComponent, createAuth } from './betterAuth/auth'
 import { matchesModeratorToken } from './moderationAuth'
 import { opaqueEdgeRateLimitKey } from './rateLimitKey'
 import { acceptPublicReport } from './publicReportReceipt'
+import { parseModerationPagination } from './moderationPagination'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 
@@ -118,7 +119,8 @@ http.route({ path: '/api/admin/reports', method: 'GET', handler: httpAction(asyn
   if (!matchesModeratorToken(request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? null, process.env.MODERATION_API_TOKEN)) {
     return json({ message: 'Not found.' }, 404)
   }
-  return json(await ctx.runQuery(internal.listings.listModerationQueue, {}))
+  const pagination = parseModerationPagination(new URL(request.url))
+  return json(await ctx.runQuery(internal.listings.listModerationQueue, pagination))
 }) })
 
 http.route({ path: '/api/admin/reports', method: 'PATCH', handler: httpAction(async (ctx, request) => {
