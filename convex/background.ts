@@ -25,9 +25,10 @@ export const refreshRouteSnapshot = internalAction({
     // not return the polyline to Workpool's status store; it may contain a
     // private route. A future approved-public route can persist its own safe
     // projection from this action.
-    const stops = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId })
-    const route = await ctx.runAction(internal.routes.compute, { stops, travelMode: args.travelMode })
-    await ctx.runMutation(internal.routes.saveSnapshotForOwner, { ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId, travelMode: args.travelMode, snapshot: route })
+    await ctx.runMutation(internal.routes.deleteLegacyTransitSnapshots, { ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId })
+    const stored = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId })
+    const route = await ctx.runAction(internal.routes.compute, { stops: stored.stops, travelMode: args.travelMode })
+    await ctx.runMutation(internal.routes.saveSnapshotForOwner, { ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId, routeRevision: stored.routeRevision, travelMode: args.travelMode, snapshot: route })
     return null
   },
 })

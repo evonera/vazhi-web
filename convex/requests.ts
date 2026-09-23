@@ -154,7 +154,7 @@ export const createPathFromAccepted = mutation({
     const accepted = await ctx.db.query('recommendations').withIndex('by_askRequestId_and_status_and_submittedAt', (q) => q.eq('askRequestId', request._id).eq('status', 'accepted')).order('asc').take(100)
     accepted.sort((left, right) => (left.acceptedAt ?? left.submittedAt) - (right.acceptedAt ?? right.submittedAt))
     if (accepted.length === 0) throw new ConvexError('Accept at least one recommendation first.')
-    const pathId = await ctx.db.insert('paths', { ownerAuthUserId, journeyId: request.journeyId, title: args.title, status: 'draft', createdAt: Date.now() })
+    const pathId = await ctx.db.insert('paths', { ownerAuthUserId, journeyId: request.journeyId, title: args.title, status: 'draft', createdAt: Date.now(), routeRevision: 0 })
     for (const [orderIndex, recommendation] of accepted.entries()) {
       await ctx.db.insert('pathStops', { pathId, recommendationId: recommendation._id, orderIndex, category: recommendation.category, place: recommendation.place, notes: recommendation.note })
     }

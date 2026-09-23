@@ -90,6 +90,9 @@ export default defineSchema({
     status: v.literal('draft'),
     createdAt: v.number(),
     updatedAt: v.optional(v.number()),
+    // Bumped whenever the owner-visible route stops change. Optional for rows
+    // written before routing revisions were introduced.
+    routeRevision: v.optional(v.number()),
   })
     .index('by_journeyId_and_createdAt', ['journeyId', 'createdAt'])
     .index('by_ownerAuthUserId_and_localPathID', ['ownerAuthUserId', 'localPathID']),
@@ -123,7 +126,10 @@ export default defineSchema({
   routeSnapshots: defineTable({
     ownerAuthUserId: v.string(),
     pathId: v.id('paths'),
-    travelMode: v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE')),
+    // Keep TRANSIT in the storage validator so existing documents remain
+    // schema-valid during rollout. It is never accepted by a public route API.
+    travelMode: v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE'), v.literal('TRANSIT')),
+    routeRevision: v.optional(v.number()),
     distanceMeters: v.number(),
     duration: v.string(),
     encodedPolyline: v.string(),

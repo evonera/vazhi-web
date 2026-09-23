@@ -21,18 +21,22 @@ export const forCurrentOwner: RegisteredAction<'public', { pathID: Id<'paths'>; 
   args: { pathID: v.id('paths'), travelMode },
   handler: async (ctx, args): Promise<RouteResult> => {
     const ownerAuthUserId = String((await authComponent.getAuthUser(ctx))._id)
+    await ctx.runMutation(internal.routes.deleteLegacyTransitSnapshots, {
+      ownerAuthUserId, pathId: args.pathID,
+    })
     const cached: RouteResult | null = await ctx.runQuery(internal.routes.latestSnapshotForOwner, {
       ownerAuthUserId, pathId: args.pathID, travelMode: args.travelMode,
     })
     if (cached) return cached
 
-    const stops: Array<{ placeId: string } | { latitude: number; longitude: number }> = await ctx.runQuery(internal.routes.storedStopsForOwner, {
+    const stored: { routeRevision: number; stops: Array<{ placeId: string } | { latitude: number; longitude: number }> } = await ctx.runQuery(internal.routes.storedStopsForOwner, {
       ownerAuthUserId, pathId: args.pathID,
     })
+    const stops = stored.stops
     await ctx.runMutation(internal.routes.reserveOwnerRouteCalculation, { ownerAuthUserId })
     const result: RouteResult = await ctx.runAction(internal.routes.compute, { stops, travelMode: args.travelMode })
     await ctx.runMutation(internal.routes.saveSnapshotForOwner, {
-      ownerAuthUserId, pathId: args.pathID, travelMode: args.travelMode, snapshot: result,
+      ownerAuthUserId, pathId: args.pathID, routeRevision: stored.routeRevision, travelMode: args.travelMode, snapshot: result,
     })
     return result
   },

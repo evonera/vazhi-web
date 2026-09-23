@@ -8,6 +8,11 @@ export type RouteStopInput = {
   place: RoutePlaceInput
 }
 
+/** Prevent an in-flight calculation from saving against stops edited mid-request. */
+export function isCurrentRouteRevision(pathRevision: number, calculatedRevision: number): boolean {
+  return pathRevision === calculatedRevision
+}
+
 export function validatePrivatePathRouteInput(input: {
   localPathID: string
   title: string

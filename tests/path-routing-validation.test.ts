@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validatePrivatePathRouteInput, type RouteStopInput } from '../src/lib/pathRoutingValidation'
+import { isCurrentRouteRevision, validatePrivatePathRouteInput, type RouteStopInput } from '../src/lib/pathRoutingValidation'
 
 const stop = (localStopID: string, orderIndex: number, latitude: number): RouteStopInput => ({
   localStopID,
@@ -8,6 +8,11 @@ const stop = (localStopID: string, orderIndex: number, latitude: number): RouteS
 })
 
 describe('private Path route input validation', () => {
+  it('accepts only a snapshot calculated against the current Path revision', () => {
+    expect(isCurrentRouteRevision(3, 3)).toBe(true)
+    expect(isCurrentRouteRevision(4, 3)).toBe(false)
+  })
+
   it('accepts a bounded, ordered set of Apple-originated coordinates', () => {
     expect(validatePrivatePathRouteInput({
       localPathID: 'path-1', title: 'Kochi food walk', stops: [stop('a', 0, 9.9), stop('b', 1, 10.0)],

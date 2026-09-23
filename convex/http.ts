@@ -398,10 +398,17 @@ http.route({ path: '/api/owner/routes', method: 'POST', handler: httpAction(asyn
   try {
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const input = await request.json() as { pathID?: string; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' }
-    const stops = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId, pathId: input.pathID ?? '' } as never)
+    const pathId = input.pathID ?? ''
     const travelMode = input.travelMode ?? 'DRIVE'
-    const route = await ctx.runAction(internal.routes.compute, { stops, travelMode })
-    await ctx.runMutation(internal.routes.saveSnapshotForOwner, { ownerAuthUserId, pathId: input.pathID ?? '', travelMode, snapshot: route } as never)
+    await ctx.runMutation(internal.routes.deleteLegacyTransitSnapshots, { ownerAuthUserId, pathId } as never)
+    const cached = await ctx.runQuery(internal.routes.latestSnapshotForOwner, { ownerAuthUserId, pathId, travelMode } as never)
+    if (cached) return json(cached)
+    const stored = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId, pathId } as never)
+    await ctx.runMutation(internal.routes.reserveOwnerRouteCalculation, { ownerAuthUserId })
+    const route = await ctx.runAction(internal.routes.compute, { stops: stored.stops, travelMode })
+    await ctx.runMutation(internal.routes.saveSnapshotForOwner, {
+      ownerAuthUserId, pathId, routeRevision: stored.routeRevision, travelMode, snapshot: route,
+    } as never)
     return json(route)
   } catch {
     return json({ message: 'This route is unavailable. You can still edit your Path.' }, 400)
@@ -414,12 +421,15 @@ http.route({ path: '/api/owner/routes/refresh', method: 'POST', handler: httpAct
   try {
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const input = await request.json() as { pathID?: string; idempotencyKey?: string; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' }
-    const stops = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId, pathId: input.pathID ?? '' } as never)
-    if (stops.length < 2 || stops.length > 25 || !input.idempotencyKey || input.idempotencyKey.length > 128) {
+    const pathId = input.pathID ?? ''
+    const stored = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId, pathId } as never)
+    if (stored.stops.length < 2 || stored.stops.length > 25 || !input.idempotencyKey || input.idempotencyKey.length > 128) {
       return json({ message: 'That refresh request is invalid.' }, 400)
     }
+    await ctx.runMutation(internal.routes.deleteLegacyTransitSnapshots, { ownerAuthUserId, pathId } as never)
+    await ctx.runMutation(internal.routes.reserveOwnerRouteCalculation, { ownerAuthUserId })
     return json(await ctx.runMutation(internal.background.enqueueRouteSnapshotRefresh, {
-      ownerAuthUserId, idempotencyKey: input.idempotencyKey, pathId: input.pathID ?? '', travelMode: input.travelMode ?? 'DRIVE',
+      ownerAuthUserId, idempotencyKey: input.idempotencyKey, pathId, travelMode: input.travelMode ?? 'DRIVE',
     } as never))
   } catch {
     return json({ message: 'This route refresh is unavailable. You can still edit your Path.' }, 400)

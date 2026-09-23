@@ -5,7 +5,7 @@ import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { RateLimiter, DAY } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
-import { validatePrivatePathRouteInput } from '../src/lib/pathRoutingValidation'
+import { isCurrentRouteRevision, validatePrivatePathRouteInput } from '../src/lib/pathRoutingValidation'
 
 const waypoint = v.object({ latitude: v.number(), longitude: v.number() })
 const routeWaypoint = v.union(v.object({ placeId: v.string() }), waypoint)
@@ -71,7 +71,7 @@ export const upsertPrivatePath = mutation({
       .unique()
     const now = Date.now()
     const pathID = existing?._id ?? await ctx.db.insert('paths', {
-      ownerAuthUserId, localPathID, title, status: 'draft', createdAt: now, updatedAt: now,
+      ownerAuthUserId, localPathID, title, status: 'draft', createdAt: now, updatedAt: now, routeRevision: 0,
     })
     const previousStops = await ctx.db.query('privateRouteStops')
       .withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', pathID))
@@ -89,7 +89,11 @@ export const upsertPrivatePath = mutation({
       })
 
     if (!unchanged) {
-      if (existing) await ctx.db.patch(pathID, { title, updatedAt: now })
+      await ctx.db.patch(pathID, {
+        title,
+        updatedAt: now,
+        routeRevision: (existing?.routeRevision ?? 0) + 1,
+      })
       for (const stop of previousStops) await ctx.db.delete(stop._id)
       for (const stop of nextStops) {
         await ctx.db.insert('privateRouteStops', {
@@ -104,7 +108,7 @@ export const upsertPrivatePath = mutation({
       const staleSnapshots = await ctx.db.query('routeSnapshots')
         .withIndex('by_ownerAuthUserId_and_pathId_and_travelMode', (q) => q
           .eq('ownerAuthUserId', ownerAuthUserId).eq('pathId', pathID))
-        .take(4)
+        .take(8)
       for (const route of staleSnapshots) await ctx.db.delete(route._id)
     }
     return { pathID }
@@ -123,29 +127,48 @@ export const storedStopsForOwner = internalQuery({
     if (!path || path.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Path not found.')
     const privateStops = await ctx.db.query('privateRouteStops')
       .withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', path._id)).order('asc').take(26)
-    if (privateStops.length > 0) {
-      return privateStops.map((stop) => stop.provider === 'google'
+    const stops = privateStops.length > 0
+      ? privateStops.map((stop) => stop.provider === 'google'
         ? { placeId: stop.providerPlaceID! }
         : { latitude: stop.latitude!, longitude: stop.longitude! })
-    }
+      : await (async () => {
+        // Existing Ask-generated Paths still use the contribution model.
+        // Prefer the durable Place ID over cached Google place details.
+        const contributionStops = await ctx.db.query('pathStops')
+          .withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', path._id)).order('asc').take(26)
+        return contributionStops.map((stop) => stop.place.provider === 'google' && stop.place.providerPlaceID
+          ? { placeId: stop.place.providerPlaceID }
+          : { latitude: stop.place.latitude, longitude: stop.place.longitude })
+      })()
+    return { routeRevision: path.routeRevision ?? 0, stops }
+  },
+})
 
-    // Existing Ask-generated Paths still use the contribution model. Prefer a
-    // durable Place ID over any cached Google detail when a legacy row has one.
-    const contributionStops = await ctx.db.query('pathStops')
-      .withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', path._id)).order('asc').take(26)
-    return contributionStops.map((stop) => stop.place.provider === 'google' && stop.place.providerPlaceID
-      ? { placeId: stop.place.providerPlaceID }
-      : { latitude: stop.place.latitude, longitude: stop.place.longitude })
+export const deleteLegacyTransitSnapshots = internalMutation({
+  args: { ownerAuthUserId: v.string(), pathId: v.id('paths') },
+  handler: async (ctx, args) => {
+    const path = await ctx.db.get(args.pathId)
+    if (!path || path.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Path not found.')
+    const snapshots = await ctx.db.query('routeSnapshots')
+      .withIndex('by_ownerAuthUserId_and_pathId_and_travelMode', (q) => q
+        .eq('ownerAuthUserId', args.ownerAuthUserId).eq('pathId', args.pathId))
+      .take(8)
+    for (const snapshot of snapshots) {
+      if (snapshot.travelMode === 'TRANSIT') await ctx.db.delete(snapshot._id)
+    }
   },
 })
 
 export const saveSnapshotForOwner = internalMutation({
-  args: { ownerAuthUserId: v.string(), pathId: v.id('paths'), travelMode, snapshot },
+  args: { ownerAuthUserId: v.string(), pathId: v.id('paths'), routeRevision: v.number(), travelMode, snapshot },
   handler: async (ctx, args) => {
     const path = await ctx.db.get(args.pathId)
     if (!path || path.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Path not found.')
+    if (!isCurrentRouteRevision(path.routeRevision ?? 0, args.routeRevision)) {
+      throw new ConvexError('Path changed while routing. Calculate the updated Path again.')
+    }
     const existing = await ctx.db.query('routeSnapshots').withIndex('by_ownerAuthUserId_and_pathId_and_travelMode', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('pathId', args.pathId).eq('travelMode', args.travelMode)).unique()
-    const value = { ...args.snapshot, ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId, travelMode: args.travelMode, expiresAt: args.snapshot.generatedAt + 5 * 60 * 1_000 }
+    const value = { ...args.snapshot, ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId, routeRevision: args.routeRevision, travelMode: args.travelMode, expiresAt: args.snapshot.generatedAt + 5 * 60 * 1_000 }
     if (existing) { await ctx.db.replace(existing._id, value); return existing._id }
     return ctx.db.insert('routeSnapshots', value)
   },
@@ -157,7 +180,8 @@ export const latestSnapshotForOwner = internalQuery({
     const path = await ctx.db.get(args.pathId)
     if (!path || path.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Path not found.')
     const result = await ctx.db.query('routeSnapshots').withIndex('by_ownerAuthUserId_and_pathId_and_travelMode', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('pathId', args.pathId).eq('travelMode', args.travelMode)).unique()
-    return result && result.expiresAt > Date.now() ? {
+    return result && result.expiresAt > Date.now() && result.routeRevision !== undefined &&
+      isCurrentRouteRevision(path.routeRevision ?? 0, result.routeRevision) && result.travelMode !== 'TRANSIT' ? {
       distanceMeters: result.distanceMeters,
       duration: result.duration,
       encodedPolyline: result.encodedPolyline,
