@@ -427,7 +427,6 @@ http.route({ path: '/api/owner/routes/refresh', method: 'POST', handler: httpAct
       return json({ message: 'That refresh request is invalid.' }, 400)
     }
     await ctx.runMutation(internal.routes.deleteLegacyTransitSnapshots, { ownerAuthUserId, pathId } as never)
-    await ctx.runMutation(internal.routes.reserveOwnerRouteCalculation, { ownerAuthUserId })
     return json(await ctx.runMutation(internal.background.enqueueRouteSnapshotRefresh, {
       ownerAuthUserId, idempotencyKey: input.idempotencyKey, pathId, travelMode: input.travelMode ?? 'DRIVE',
     } as never))

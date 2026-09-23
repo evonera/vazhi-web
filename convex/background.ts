@@ -2,6 +2,8 @@ import { v } from 'convex/values'
 import { internalAction, internalMutation } from './_generated/server'
 import { internal, components } from './_generated/api'
 import { Workpool, vOnCompleteArgs } from '@convex-dev/workpool'
+import { ConvexError } from 'convex/values'
+import { RateLimiter, DAY } from '@convex-dev/rate-limiter'
 
 const travelMode = v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE'))
 
@@ -12,6 +14,13 @@ const backgroundWorkpool = new Workpool(components.backgroundWorkpool, {
   maxParallelism: 2,
   retryActionsByDefault: true,
   defaultRetryBehavior: { maxAttempts: 3, initialBackoffMs: 1_000, base: 2 },
+})
+
+// Shares the same named owner bucket as interactive routes. Reservation happens
+// atomically with idempotency lookup below, so repeated refresh delivery uses
+// one token per queued job rather than one token per HTTP retry.
+const backgroundRouteLimiter = new RateLimiter(components.rateLimiter, {
+  ownerRouteCalculation: { kind: 'token bucket', rate: 12, period: DAY, capacity: 4 },
 })
 
 export const refreshRouteSnapshot = internalAction({
@@ -64,6 +73,12 @@ export const enqueueRouteSnapshotRefresh = internalMutation({
         .eq('idempotencyKey', args.idempotencyKey))
       .unique()
     if (existing) return { id: existing._id, state: existing.state }
+
+    const quota = await backgroundRouteLimiter.limit(ctx, 'ownerRouteCalculation', {
+      key: args.ownerAuthUserId,
+      throws: false,
+    })
+    if (!quota.ok) throw new ConvexError('You have reached today’s route-calculation limit. Try again later.')
 
     const jobId = await ctx.db.insert('backgroundJobs', {
       ownerAuthUserId: args.ownerAuthUserId,
