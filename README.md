@@ -19,5 +19,6 @@ npm run dev
 - Browser code receives only `VITE_*` public origins.
 - Google Places, Turnstile verification, Better Auth, and rate-limit salts are server-only Convex environment variables.
 - Public requests never reveal private Vazhi Moments, media, transcripts, or exact owner locations.
+- `MODERATION_API_TOKEN` protects the operator-only `/api/admin/reports` queue. Use it only from a trusted terminal/workflow; never put it in `VITE_*`, a web page, or the iOS app. Decisions append audit records and takedowns immediately hide the guide.
 
 The prior experiment is preserved locally in `legacy-reference/` and intentionally excluded from Git.
