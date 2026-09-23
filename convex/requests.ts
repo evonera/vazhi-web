@@ -6,7 +6,7 @@ import { authComponent } from './betterAuth/auth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { toOwnerAskRequest, toPublicAskRequest } from './askProjections'
-import { orderAcceptedRecommendations } from './acceptedRecommendationOrder'
+import { MAX_PATH_STOPS, hasPathStopCapacity, orderAcceptedRecommendations } from './acceptedRecommendationOrder'
 
 const category = v.union(
   v.literal('food'), v.literal('hidden_spot'), v.literal('stay'),
@@ -127,6 +127,14 @@ export const setRecommendationStatus = mutation({
     if (!recommendation) throw new ConvexError('Recommendation not found.')
     const request = await ctx.db.get(recommendation.askRequestId)
     if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Recommendation not found.')
+    if (args.status === 'accepted' && recommendation.status !== 'accepted') {
+      const accepted = await ctx.db.query('recommendations')
+        .withIndex('by_askRequestId_and_status_and_submittedAt', (q) => q.eq('askRequestId', request._id).eq('status', 'accepted'))
+        .take(MAX_PATH_STOPS)
+      if (!hasPathStopCapacity(accepted.length)) {
+        throw new ConvexError(`Paths support up to ${MAX_PATH_STOPS} accepted places. Ignore an accepted place before accepting another.`)
+      }
+    }
     await ctx.db.patch(recommendation._id, {
       status: args.status,
       acceptedAt: args.status === 'accepted' && recommendation.status !== 'accepted' ? Date.now() : recommendation.acceptedAt,
@@ -146,10 +154,14 @@ export const createPathFromAccepted = mutation({
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const request = await ctx.db.get(args.requestId)
     if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Request not found.')
-    const accepted = orderAcceptedRecommendations(await ctx.db.query('recommendations')
+    const acceptedRows = await ctx.db.query('recommendations')
       .withIndex('by_askRequestId_and_status_and_submittedAt', (q) => q.eq('askRequestId', request._id).eq('status', 'accepted'))
       .order('asc')
-      .collect())
+      .take(MAX_PATH_STOPS + 1)
+    if (acceptedRows.length > MAX_PATH_STOPS) {
+      throw new ConvexError(`Paths support up to ${MAX_PATH_STOPS} accepted places. Ignore an accepted place before creating a Path.`)
+    }
+    const accepted = orderAcceptedRecommendations(acceptedRows)
     if (accepted.length === 0) throw new ConvexError('Accept at least one recommendation first.')
     const pathId = await ctx.db.insert('paths', { ownerAuthUserId, journeyId: request.journeyId, title: args.title, status: 'draft', createdAt: Date.now() })
     for (const [orderIndex, recommendation] of accepted.entries()) {
