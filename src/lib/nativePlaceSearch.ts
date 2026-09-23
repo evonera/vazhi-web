@@ -11,7 +11,8 @@ export function parseNativePlaceSearchInput(value: unknown): NativePlaceSearchIn
   const query = input.query.trim()
   if (query.length < 3 || query.length > 100) return null
 
-  const destination = typeof input.destination === 'string' ? input.destination.trim() : ''
-  if (destination.length > 120) return null
+  if (typeof input.destination !== 'string') return null
+  const destination = input.destination.trim()
+  if (destination.length === 0 || destination.length > 120) return null
   return { query, destination }
 }
