@@ -6,7 +6,6 @@ import { components } from './_generated/api'
 
 const moment = v.object({
   id: v.string(),
-  capturedAt: v.number(),
   note: v.string(),
   placeName: v.optional(v.string()),
   locality: v.optional(v.string()),
@@ -18,7 +17,6 @@ const rateLimiter = new RateLimiter(components.rateLimiter, {
 
 type SourceMoment = {
   id: string
-  capturedAt: number
   note: string
   placeName?: string
   locality?: string
@@ -104,7 +102,7 @@ export const generateSuggestions = internalAction({
     const input = {
       journeyTitle: args.journeyTitle.trim(),
       journeySummary: args.journeySummary.trim(),
-      moments: args.moments.map(({ id, capturedAt, note, placeName, locality }) => ({ id, capturedAt, note, placeName, locality })),
+      moments: args.moments.map(({ id, note, placeName, locality }) => ({ id, note, placeName, locality })),
     }
     const schema = {
       name: 'vazhi_grounded_suggestions', strict: true,

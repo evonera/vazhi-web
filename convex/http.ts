@@ -7,6 +7,7 @@ import { opaqueEdgeRateLimitKey } from './rateLimitKey'
 import { acceptPublicReport } from './publicReportReceipt'
 import { parseModerationPagination } from './moderationPagination'
 import { parseRouteRefreshInput } from './routeRefreshValidation'
+import { parseCloudAISuggestionRequest } from './aiRequestValidation'
 import type { DataModel } from './_generated/dataModel'
 import type { ActionCtx } from './_generated/server'
 
@@ -318,40 +319,24 @@ http.route({ path: '/api/ai/suggestions', method: 'POST', handler: httpAction(as
   }
   const declaredLength = Number(request.headers.get('content-length') ?? 0)
   if (declaredLength > 64 * 1024) return json({ message: 'Select fewer or shorter notes.' }, 413)
-  let input: Record<string, unknown>
+  let parsed: unknown
   try {
     const body = await request.text()
     if (new TextEncoder().encode(body).byteLength > 64 * 1024) return json({ message: 'Select fewer or shorter notes.' }, 413)
-    const parsed: unknown = JSON.parse(body)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return json({ message: 'Check the selected notes and try again.' }, 400)
-    input = parsed as Record<string, unknown>
+    parsed = JSON.parse(body)
   } catch {
     return json({ message: 'Check the selected notes and try again.' }, 400)
   }
-  if (typeof input.journeyTitle !== 'string' || input.journeyTitle.trim().length === 0 || input.journeyTitle.length > 160 ||
-      (input.journeySummary !== undefined && (typeof input.journeySummary !== 'string' || input.journeySummary.length > 1_000)) ||
-      !Array.isArray(input.moments) || input.moments.length === 0 || input.moments.length > 20) {
+  const input = parseCloudAISuggestionRequest(parsed)
+  if (!input) {
     return json({ message: 'Select between 1 and 20 valid notes.' }, 400)
-  }
-  const moments: Array<{ id: string; capturedAt: number; note: string; placeName?: string; locality?: string }> = []
-  for (const entry of input.moments) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return json({ message: 'One selected note is invalid.' }, 400)
-    const moment = entry as Record<string, unknown>
-    if (typeof moment.id !== 'string' || moment.id.length === 0 || moment.id.length > 128 ||
-        typeof moment.capturedAt !== 'number' || !Number.isFinite(moment.capturedAt) ||
-        typeof moment.note !== 'string' || moment.note.length > 2_000 ||
-        (moment.placeName !== undefined && (typeof moment.placeName !== 'string' || moment.placeName.length > 160)) ||
-        (moment.locality !== undefined && (typeof moment.locality !== 'string' || moment.locality.length > 160))) {
-      return json({ message: 'One selected note is invalid.' }, 400)
-    }
-    moments.push({ id: moment.id, capturedAt: moment.capturedAt, note: moment.note, placeName: moment.placeName as string | undefined, locality: moment.locality as string | undefined })
   }
   try {
     const result = await ctx.runAction(internal.ai.generateSuggestions, {
       ownerAuthUserId,
       journeyTitle: input.journeyTitle,
-      journeySummary: typeof input.journeySummary === 'string' ? input.journeySummary : '',
-      moments,
+      journeySummary: input.journeySummary,
+      moments: input.moments,
     })
     if (result.kind === 'rate_limited') return json({ message: 'You have reached the cloud-intelligence limit. Try again later.' }, 429)
     return json({ suggestions: result.suggestions })

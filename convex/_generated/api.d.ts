@@ -10,6 +10,7 @@
 
 import type * as acceptedRecommendationOrder from "../acceptedRecommendationOrder.js";
 import type * as ai from "../ai.js";
+import type * as aiRequestValidation from "../aiRequestValidation.js";
 import type * as askProjections from "../askProjections.js";
 import type * as background from "../background.js";
 import type * as http from "../http.js";
@@ -39,6 +40,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   acceptedRecommendationOrder: typeof acceptedRecommendationOrder;
   ai: typeof ai;
+  aiRequestValidation: typeof aiRequestValidation;
   askProjections: typeof askProjections;
   background: typeof background;
   http: typeof http;
