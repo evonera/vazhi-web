@@ -91,6 +91,22 @@ export const archiveForOwner = internalMutation({
   },
 })
 
+export const getOwnerListing = internalQuery({
+  args: { ownerAuthUserId: v.string(), localPathID: v.string() },
+  handler: async (ctx, args) => {
+    const listing = await ctx.db.query('publicItineraryListings')
+      .withIndex('by_ownerAuthUserId_and_localPathID', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('localPathID', args.localPathID))
+      .unique()
+    if (!listing || listing.status !== 'published' || !listing.currentVersionId) return null
+    const [profile, version] = await Promise.all([
+      ctx.db.query('profiles').withIndex('by_ownerAuthUserId', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId)).unique(),
+      ctx.db.get(listing.currentVersionId),
+    ])
+    if (!profile?.handle || !version) return null
+    return { handle: profile.handle, slug: listing.slug, versionNumber: version.versionNumber, visibility: listing.visibility }
+  },
+})
+
 export const getPublicProfileByHandle = internalQuery({
   args: { handle: v.string() },
   handler: async (ctx, args) => {
