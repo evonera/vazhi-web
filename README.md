@@ -4,6 +4,8 @@ The public companion to Vazhi iOS. **Ask the Way** lets a traveller share one li
 
 ## Local setup
 
+Use Node.js 22.12 or newer (`package.json` declares the minimum runtime).
+
 ```sh
 npm install
 cp .env.example .env.local

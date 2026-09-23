@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isSafeReferenceURL } from '../src/lib/contracts'
 import { buildPlaceAutocompleteInput, buildPlaceSearchQuery, hasValidCoordinates } from '../convex/mapsValidation'
+import { getOutboxJobValidationError } from '../convex/syncValidation'
 
 describe('reference URL validation', () => {
   it('allows HTTPS references only', () => {
@@ -23,5 +24,27 @@ describe('Google Maps input validation', () => {
     expect(hasValidCoordinates({ latitude: 91, longitude: 0 })).toBe(false)
     expect(hasValidCoordinates({ latitude: 0, longitude: 181 })).toBe(false)
     expect(hasValidCoordinates({ latitude: Number.NaN, longitude: 0 })).toBe(false)
+  })
+})
+
+describe('outbox job preflight validation', () => {
+  it('rejects missing Journey snapshots before any sync mutation writes', () => {
+    expect(getOutboxJobValidationError({ actionType: 'upsertJourney' })).toContain('Journey snapshot')
+  })
+
+  it('rejects a Moment that references a different Journey', () => {
+    expect(getOutboxJobValidationError({
+      actionType: 'createMoment',
+      journey: { id: 'journey-a' },
+      moment: { journeyId: 'journey-b' },
+    })).toContain('Moment must belong')
+  })
+
+  it('accepts complete Journey and Moment snapshots', () => {
+    expect(getOutboxJobValidationError({
+      actionType: 'createMoment',
+      journey: { id: 'journey-a' },
+      moment: { journeyId: 'journey-a' },
+    })).toBeNull()
   })
 })
