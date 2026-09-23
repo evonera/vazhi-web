@@ -8,6 +8,7 @@ import { identifiedWebPurchaseLink } from '../src/lib/webPurchaseLink'
 import { developmentIngressSalt, opaqueRateLimitKey } from '../src/lib/publicIngress'
 import { verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
 import { toNativePlace } from '../src/lib/nativePlaceProjection'
+import { parseNativePlaceSearchInput } from '../src/lib/nativePlaceSearch'
 
 const http = httpRouter()
 
@@ -377,16 +378,15 @@ http.route({ path: '/api/owner/places/search', method: 'POST', handler: httpActi
   try { ownerAuthUserId = String((await authComponent.getAuthUser(ctx))._id) } catch {
     return json({ message: 'Sign in to search Google places.' }, 401)
   }
-  let input: unknown
-  try { input = await request.json() } catch { return json({ message: 'Enter a place to search.' }, 400) }
-  const query = input && typeof input === 'object' && 'query' in input && typeof input.query === 'string'
-    ? input.query.trim() : ''
-  if (query.length < 3 || query.length > 100) return json({ message: 'Enter 3–100 characters to search.' }, 400)
+  let body: unknown
+  try { body = await request.json() } catch { return json({ message: 'Enter a place to search.' }, 400) }
+  const input = parseNativePlaceSearchInput(body)
+  if (!input) return json({ message: 'Enter a 3–100 character place search and a valid Journey destination.' }, 400)
   try { await ctx.runMutation(internal.placeLimits.consumeOwnerSearch, { ownerAuthUserId }) } catch {
     return json({ message: 'Place search limit reached. Try again later.' }, 429)
   }
   try {
-    const places = await ctx.runAction(internal.places.search, { query, destination: '' })
+    const places = await ctx.runAction(internal.places.search, input)
     return json(places.map(toNativePlace))
   } catch {
     return json({ message: 'Place search is temporarily unavailable.' }, 503)

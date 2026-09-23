@@ -39,6 +39,11 @@ and never receive a Google API key. The native build still needs its
 environment-specific `ASK_THE_WAY_API_BASE_URL` pointed at the matching Convex
 site endpoint after Apple sign-in credentials are provisioned.
 
+The native owner search contract is `POST /api/owner/places/search` with a
+Bearer Convex token and JSON `{ "query": "...", "destination": "..." }`.
+The destination is bounded and passed to the server-only Google Text Search as
+travel context; the client never sends coordinates or provider credentials.
+
 The following are deliberately absent until their providers are ready:
 
 - `APPLE_SERVICE_ID` and `APPLE_CLIENT_SECRET`: require Apple Developer
