@@ -204,6 +204,17 @@ http.route({ path: '/api/owner/listings', method: 'POST', handler: httpAction(as
   }
 }) })
 
+http.route({ path: '/api/owner/listings', method: 'GET', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const localPathID = new URL(request.url).searchParams.get('localPathID') ?? ''
+    const guide = await ctx.runQuery(internal.listings.getOwnerListing, { ownerAuthUserId, localPathID })
+    return json({ guide })
+  } catch {
+    return json({ message: 'Sign in to view this guide.' }, 401)
+  }
+}) })
+
 http.route({ path: '/api/owner/listings', method: 'PATCH', handler: httpAction(async (ctx, request) => {
   try {
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
