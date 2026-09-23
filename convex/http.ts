@@ -4,6 +4,7 @@ import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
 import { matchesModeratorToken } from './moderationAuth'
 import { opaqueEdgeRateLimitKey } from './rateLimitKey'
+import { acceptPublicReport } from './publicReportReceipt'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 
@@ -100,16 +101,15 @@ http.route({ path: '/api/recommendations', method: 'POST', handler: httpAction(a
 }) })
 
 http.route({ path: '/api/reports', method: 'POST', handler: httpAction(async (ctx, request) => {
-  const input = await request.json() as Record<string, unknown>
-  try {
+  const receipt = await acceptPublicReport(request, async (input) => {
     await ctx.runMutation(internal.listings.reportPublicListing, {
       listingSlug: typeof input.listingSlug === 'string' ? input.listingSlug : '',
       reason: typeof input.reason === 'string' ? input.reason : '',
       detail: typeof input.detail === 'string' ? input.detail : undefined,
       rateLimitKey: await requestBucket(request),
     })
-  } catch { /* Return a generic receipt; reports are not an existence oracle. */ }
-  return json({ accepted: true })
+  })
+  return json(receipt)
 }) })
 
 // The moderation API is intentionally not part of the browser app. Operators
