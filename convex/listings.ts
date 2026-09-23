@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { internalMutation, internalQuery } from './_generated/server'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
+import { clean, sanitizePublicGuideStops } from './publicGuideSanitization'
 
 const visibility = v.union(v.literal('public'), v.literal('unlisted'))
 const stop = v.object({
@@ -22,42 +23,6 @@ const reportLimiter = new RateLimiter(components.rateLimiter, {
 function slug() {
   const bytes = crypto.getRandomValues(new Uint8Array(18))
   return Array.from(bytes, (byte) => byte.toString(36).padStart(2, '0')).join('').slice(0, 24)
-}
-
-function clean(value: string, maximum: number, label: string) {
-  const trimmed = value.trim()
-  if (!trimmed || trimmed.length > maximum) throw new ConvexError(`${label} is required and must be ${maximum} characters or fewer.`)
-  return trimmed
-}
-
-function validatedStops(stops: Array<{
-  orderIndex: number; title: string; notes: string; placeName?: string; locality?: string
-  latitude?: number; longitude?: number; isApproximateLocation: boolean
-}>) {
-  if (stops.length === 0 || stops.length > 100) throw new ConvexError('Publish between 1 and 100 stops.')
-  const seen = new Set<number>()
-  return [...stops]
-    .sort((left, right) => left.orderIndex - right.orderIndex)
-    .map((item, index) => {
-      if (!Number.isInteger(item.orderIndex) || item.orderIndex < 0 || seen.has(item.orderIndex)) {
-        throw new ConvexError('Each stop needs a unique order.')
-      }
-      seen.add(item.orderIndex)
-      if (item.latitude !== undefined && (item.latitude < -90 || item.latitude > 90)) throw new ConvexError('A stop has invalid latitude.')
-      if (item.longitude !== undefined && (item.longitude < -180 || item.longitude > 180)) throw new ConvexError('A stop has invalid longitude.')
-      return {
-        orderIndex: index,
-        title: clean(item.title, 120, 'Stop title'),
-        notes: item.notes.trim().slice(0, 1_000),
-        placeName: item.placeName?.trim().slice(0, 160) || undefined,
-        locality: item.locality?.trim().slice(0, 120) || undefined,
-        // Coordinates tagged approximate are never trusted as client-side
-        // redactions: omit them entirely from the immutable public snapshot.
-        latitude: item.isApproximateLocation ? undefined : item.latitude,
-        longitude: item.isApproximateLocation ? undefined : item.longitude,
-        isApproximateLocation: item.isApproximateLocation,
-      }
-    })
 }
 
 /** Creates a frozen version from the caller's already-redacted Path payload. */
@@ -99,7 +64,7 @@ export const publishForOwner = internalMutation({
       subtitle: args.subtitle.trim().slice(0, 280),
       disclaimer: clean(args.disclaimer, 500, 'Guide disclaimer'),
       approximateLocations: args.approximateLocations,
-      stops: validatedStops(args.stops),
+      stops: sanitizePublicGuideStops(args.stops),
       createdAt: now,
     })
     await ctx.db.patch(listingId, {
@@ -113,10 +78,12 @@ export const publishForOwner = internalMutation({
 })
 
 export const archiveForOwner = internalMutation({
-  args: { ownerAuthUserId: v.string(), listingId: v.id('publicItineraryListings') },
+  args: { ownerAuthUserId: v.string(), localPathID: v.string() },
   handler: async (ctx, args) => {
-    const listing = await ctx.db.get(args.listingId)
-    if (!listing || listing.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Guide not found.')
+    const listing = await ctx.db.query('publicItineraryListings')
+      .withIndex('by_ownerAuthUserId_and_localPathID', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('localPathID', args.localPathID))
+      .unique()
+    if (!listing) throw new ConvexError('Guide not found.')
     await ctx.db.patch(listing._id, { status: 'archived', updatedAt: Date.now() })
     return null
   },
@@ -149,7 +116,7 @@ export const getPublicProfileByHandle = internalQuery({
 })
 
 export const getPublicListing = internalQuery({
-  args: { handle: v.string(), slug: v.string() },
+  args: { handle: v.string(), slug: v.string(), versionNumber: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const handle = args.handle.trim().toLowerCase()
     let profile = await ctx.db.query('profiles').withIndex('by_handle', (q) => q.eq('handle', handle)).unique()
@@ -161,7 +128,11 @@ export const getPublicListing = internalQuery({
     const listing = await ctx.db.query('publicItineraryListings').withIndex('by_slug', (q) => q.eq('slug', args.slug)).unique()
     if (!listing || listing.ownerAuthUserId !== profile.ownerAuthUserId || listing.status !== 'published') return null
     if (listing.visibility === 'public' && !profile.isPublic) return null
-    const version = listing.currentVersionId ? await ctx.db.get(listing.currentVersionId) : null
+    const version = args.versionNumber === undefined
+      ? (listing.currentVersionId ? await ctx.db.get(listing.currentVersionId) : null)
+      : await ctx.db.query('itineraryVersions')
+        .withIndex('by_listingId_and_versionNumber', (q) => q.eq('listingId', listing._id).eq('versionNumber', args.versionNumber!))
+        .unique()
     if (!version) return null
     return {
       handle: profile.handle,
@@ -174,7 +145,9 @@ export const getPublicListing = internalQuery({
       disclaimer: version.disclaimer,
       approximateLocations: version.approximateLocations,
       stops: version.stops,
-      publishedAt: listing.updatedAt,
+      // A numbered guide URL is an immutable snapshot; its timestamp must be
+      // frozen too, rather than changing when a later version is published.
+      publishedAt: version.createdAt,
     }
   },
 })
@@ -197,6 +170,74 @@ export const reportPublicListing = internalMutation({
         status: 'open', createdAt: Date.now(),
       })
     }
+    return null
+  },
+})
+
+/** Server-only moderation queue. The HTTP boundary requires a separate secret. */
+export const listModerationQueue = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const reports = await ctx.db.query('reports')
+      .withIndex('by_status_and_createdAt', (q) => q.eq('status', 'open'))
+      .order('desc').take(100)
+    return Promise.all(reports.map(async (report) => {
+      const listing = report.listingId ? await ctx.db.get(report.listingId) : null
+      return {
+        id: report._id,
+        listingSlug: report.listingSlug,
+        listingStatus: listing?.status ?? 'unavailable',
+        reason: report.reason,
+        detail: report.detail,
+        createdAt: report.createdAt,
+      }
+    }))
+  },
+})
+
+/** Append an auditable decision and hide a guide immediately on takedown. */
+export const resolveModerationReport = internalMutation({
+  args: {
+    reportId: v.id('reports'),
+    action: v.union(v.literal('dismiss'), v.literal('takedown'), v.literal('restore')),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const report = await ctx.db.get(args.reportId)
+    if (!report) throw new ConvexError('Report not found.')
+    const listing = report.listingId ? await ctx.db.get(report.listingId) : null
+    if (args.action !== 'dismiss' && !listing) throw new ConvexError('Guide is unavailable.')
+    if (args.action === 'restore' && listing?.status !== 'takedown') {
+      throw new ConvexError('Only a taken-down guide can be restored.')
+    }
+
+    const now = Date.now()
+    const previousListingStatus = listing?.status
+    if (args.action === 'takedown' && listing) {
+      await ctx.db.patch(listing._id, { status: 'takedown', updatedAt: now })
+    } else if (args.action === 'restore' && listing) {
+      const recentActions = await ctx.db.query('moderationActions')
+        .withIndex('by_listingId_and_createdAt', (q) => q.eq('listingId', listing._id))
+        .order('desc').take(100)
+      const priorDecision = recentActions.find((action) => action.action === 'takedown')
+      await ctx.db.patch(listing._id, {
+        status: priorDecision?.action === 'takedown' ? priorDecision.previousListingStatus ?? 'published' : 'published',
+        updatedAt: now,
+      })
+    }
+
+    await ctx.db.patch(report._id, {
+      status: args.action === 'dismiss' ? 'dismissed' : 'reviewed',
+    })
+    await ctx.db.insert('moderationActions', {
+      listingId: listing?._id,
+      reportId: report._id,
+      action: args.action,
+      previousListingStatus,
+      note: args.note?.trim().slice(0, 1_000) || undefined,
+      actor: 'moderation_api',
+      createdAt: now,
+    })
     return null
   },
 })

@@ -20,5 +20,6 @@ npm run dev
 - Cloudflare verifies Turnstile, derives an opaque rate key, and signs public writes/searches before forwarding them to Convex.
 - Google Places and Better Auth secrets remain in Convex; Turnstile, ingress-signing, and rate-limit secrets remain in platform secret stores as described in `.env.example`.
 - Public requests never reveal private Vazhi Moments, media, transcripts, or exact owner locations.
+- `MODERATION_API_TOKEN` protects the operator-only `/api/admin/reports` queue. Use it only from a trusted terminal/workflow; never put it in `VITE_*`, a web page, or the iOS app. Decisions append audit records and takedowns immediately hide the guide.
 
 The prior experiment is preserved locally in `legacy-reference/` and intentionally excluded from Git.

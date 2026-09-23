@@ -233,6 +233,21 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index('by_listingId_and_createdAt', ['listingId', 'createdAt'])
-    .index('by_listingId_and_reportFingerprint', ['listingId', 'reportFingerprint']),
+    .index('by_listingId_and_reportFingerprint', ['listingId', 'reportFingerprint'])
+    .index('by_status_and_createdAt', ['status', 'createdAt']),
+
+  // Moderation decisions are append-only audit records; the shared dashboard
+  // credential is never written to product data.
+  moderationActions: defineTable({
+    listingId: v.optional(v.id('publicItineraryListings')),
+    reportId: v.id('reports'),
+    action: v.union(v.literal('dismiss'), v.literal('takedown'), v.literal('restore')),
+    previousListingStatus: v.optional(v.union(v.literal('published'), v.literal('archived'), v.literal('takedown'))),
+    note: v.optional(v.string()),
+    actor: v.literal('moderation_api'),
+    createdAt: v.number(),
+  })
+    .index('by_reportId_and_createdAt', ['reportId', 'createdAt'])
+    .index('by_listingId_and_createdAt', ['listingId', 'createdAt']),
 
 })

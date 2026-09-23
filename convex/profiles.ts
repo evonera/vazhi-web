@@ -5,8 +5,9 @@ import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 
 const reservedHandles = new Set([
-  'about', 'admin', 'api', 'ask', 'contact', 'help', 'inbox', 'privacy',
-  'report', 'settings', 'sign-in', 'support', 'terms', 'vazhi',
+  'about', 'admin', 'api', 'ask', 'contact', 'download', 'help', 'inbox',
+  'privacy', 'report', 'requests', 'settings', 'sign-in', 'studio', 'support',
+  'terms', 'vazhi',
 ])
 
 async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {

@@ -2,6 +2,7 @@ import { httpRouter } from 'convex/server'
 import { httpAction } from './_generated/server'
 import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
+import { matchesModeratorToken } from './moderationAuth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { parseNativePlaceSearchInput } from '../src/lib/nativePlaceSearch'
@@ -58,8 +59,14 @@ http.route({ path: '/api/profile', method: 'GET', handler: httpAction(async (ctx
 
 http.route({ path: '/api/listing', method: 'GET', handler: httpAction(async (ctx, request) => {
   const url = new URL(request.url)
+  const requestedVersion = url.searchParams.get('version')
+  const parsedVersion = requestedVersion === null ? undefined : Number(requestedVersion)
+  if (requestedVersion !== null && (!Number.isSafeInteger(parsedVersion) || (parsedVersion ?? 0) <= 0)) {
+    return json({ message: 'This guide version is unavailable.' }, 404)
+  }
   const result = await ctx.runQuery(internal.listings.getPublicListing, {
     handle: url.searchParams.get('handle') ?? '', slug: url.searchParams.get('slug') ?? '',
+    versionNumber: parsedVersion,
   })
   return result ? json(result) : json({ message: 'This guide is unavailable.' }, 404)
 }) })
@@ -133,6 +140,32 @@ http.route({ path: '/api/reports', method: 'POST', handler: httpAction(async (ct
   return json({ accepted: true })
 }) })
 
+// The moderation API is intentionally not part of the browser app. Operators
+// call it from a trusted terminal/workflow using a server-only credential.
+http.route({ path: '/api/admin/reports', method: 'GET', handler: httpAction(async (ctx, request) => {
+  if (!matchesModeratorToken(request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? null, process.env.MODERATION_API_TOKEN)) {
+    return json({ message: 'Not found.' }, 404)
+  }
+  return json(await ctx.runQuery(internal.listings.listModerationQueue, {}))
+}) })
+
+http.route({ path: '/api/admin/reports', method: 'PATCH', handler: httpAction(async (ctx, request) => {
+  if (!matchesModeratorToken(request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? null, process.env.MODERATION_API_TOKEN)) {
+    return json({ message: 'Not found.' }, 404)
+  }
+  try {
+    const input = await request.json() as Record<string, unknown>
+    await ctx.runMutation(internal.listings.resolveModerationReport, {
+      reportId: typeof input.reportId === 'string' ? input.reportId : '',
+      action: input.action,
+      note: typeof input.note === 'string' ? input.note : undefined,
+    } as never)
+    return json({ updated: true })
+  } catch {
+    return json({ message: 'That report could not be updated.' }, 400)
+  }
+}) })
+
 http.route({ path: '/api/owner/ask-requests', method: 'POST', handler: httpAction(async (ctx, request) => {
   try {
     const input = await request.json() as Record<string, unknown>
@@ -175,7 +208,7 @@ http.route({ path: '/api/owner/listings', method: 'PATCH', handler: httpAction(a
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const input = await request.json() as Record<string, unknown>
     await ctx.runMutation(internal.listings.archiveForOwner, {
-      ownerAuthUserId, listingId: typeof input.listingID === 'string' ? input.listingID : '',
+      ownerAuthUserId, localPathID: typeof input.localPathID === 'string' ? input.localPathID : '',
     } as never)
     return json({ updated: true })
   } catch {
