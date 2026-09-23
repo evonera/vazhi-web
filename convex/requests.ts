@@ -139,7 +139,7 @@ export const setRecommendationStatus = mutation({
       status: args.status,
       acceptedAt: args.status === 'accepted' && recommendation.status !== 'accepted' ? Date.now() : recommendation.acceptedAt,
     })
-    if (recommendation.status === 'pending' && args.status !== 'pending') {
+    if (recommendation.status === 'pending') {
       const journey = await ctx.db.get(request.journeyId)
       await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, (request.pendingRecommendationCount ?? 0) - 1) })
       if (journey) await ctx.db.patch(journey._id, { pendingRecommendationCount: Math.max(0, (journey.pendingRecommendationCount ?? 0) - 1), updatedAt: Date.now() })
@@ -269,7 +269,7 @@ export const setRecommendationStatusForOwner = internalMutation({
       status: args.status,
       acceptedAt: args.status === 'accepted' && recommendation.status !== 'accepted' ? Date.now() : recommendation.acceptedAt,
     })
-    if (recommendation.status === 'pending' && args.status !== 'pending') {
+    if (recommendation.status === 'pending') {
       const journey = await ctx.db.get(request.journeyId)
       await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, (request.pendingRecommendationCount ?? 0) - 1) })
       if (journey) await ctx.db.patch(journey._id, { pendingRecommendationCount: Math.max(0, (journey.pendingRecommendationCount ?? 0) - 1), updatedAt: Date.now() })

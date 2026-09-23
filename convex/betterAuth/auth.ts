@@ -12,7 +12,7 @@ export const authComponent = createClient<DataModel, typeof schema>(components.b
   local: { schema },
 })
 
-export const createAuth = (ctx: GenericCtx<DataModel>) => betterAuth({
+export const createAuthOptions = (ctx: GenericCtx<DataModel>) => ({
   appName: 'Vazhi',
   baseURL: process.env.CONVEX_SITE_URL,
   secret: process.env.BETTER_AUTH_SECRET,
@@ -27,3 +27,5 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => betterAuth({
   },
   plugins: [convex({ authConfig, jwks: process.env.BETTER_AUTH_JWKS })],
 } satisfies BetterAuthOptions)
+
+export const createAuth = (ctx: GenericCtx<DataModel>) => betterAuth(createAuthOptions(ctx))

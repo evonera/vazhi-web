@@ -38,6 +38,27 @@ export const claimLegacyAskData = internalMutation({
         .withIndex('by_journeyId_and_createdAt', (q) => q.eq('journeyId', journey._id))
         .take(MAX_COUNTER_BACKFILL_ROWS + 1)
       const exactRequestCount = journeyRequests.length <= MAX_COUNTER_BACKFILL_ROWS
+      let recommendationCount = 0
+      let pendingRecommendationCount = 0
+      let exactRecommendationTotals = exactRequestCount
+      let recommendationReadBudget = MAX_COUNTER_BACKFILL_ROWS
+      for (const request of journeyRequests.slice(0, MAX_COUNTER_BACKFILL_ROWS)) {
+        if (request.recommendationCount !== undefined && request.pendingRecommendationCount !== undefined) {
+          recommendationCount += request.recommendationCount
+          pendingRecommendationCount += request.pendingRecommendationCount
+          continue
+        }
+        const recommendations = await ctx.db.query('recommendations')
+          .withIndex('by_askRequestId_and_submittedAt', (q) => q.eq('askRequestId', request._id))
+          .take(recommendationReadBudget + 1)
+        if (recommendations.length > recommendationReadBudget) {
+          exactRecommendationTotals = false
+          break
+        }
+        recommendationReadBudget -= recommendations.length
+        recommendationCount += recommendations.length
+        pendingRecommendationCount += recommendations.filter((item) => item.status === 'pending').length
+      }
       await ctx.db.patch(journey._id, {
         ownerAuthUserId: args.ownerAuthUserId,
         ownerTokenIdentifier: undefined,
@@ -45,6 +66,7 @@ export const claimLegacyAskData = internalMutation({
           askRequestCount: journeyRequests.length,
           openAskRequestCount: journeyRequests.filter((request) => request.status === 'open').length,
         } : {}),
+        ...(exactRecommendationTotals ? { recommendationCount, pendingRecommendationCount } : {}),
       })
     }
 

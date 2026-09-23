@@ -7,8 +7,8 @@ import { opaqueEdgeRateLimitKey } from './rateLimitKey'
 import { acceptPublicReport } from './publicReportReceipt'
 import { parseModerationPagination } from './moderationPagination'
 import { parseRouteRefreshInput } from './routeRefreshValidation'
-import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
+import type { ActionCtx } from './_generated/server'
 
 const http = httpRouter()
 
@@ -26,7 +26,7 @@ async function requestBucket(request: Request) {
   return opaqueEdgeRateLimitKey(process.env.RATE_LIMIT_SALT, request.headers.get('cf-connecting-ip'), process.env.NODE_ENV === 'production')
 }
 
-async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
+async function requireOwnerAuthUserId(ctx: ActionCtx) {
   const user = await authComponent.getAuthUser(ctx)
   // A one-time, self-service bridge preserves rows written before owner IDs
   // moved from the custom-JWT token identifier to Better Auth user IDs. The
