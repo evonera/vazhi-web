@@ -30,8 +30,16 @@
   .hero-copy h1 { max-width: none; font-size: clamp(2rem, 9.8vw, 3.55rem); line-height: .98; }
   .hero-copy > p:not(.hero-kicker):not(.platform-note) { max-width: 30ch; margin: 18px 0; }
   .hero-actions .button { min-height: 50px; }
-  .device-stack { right: 2%; bottom: 8px; width: 76vw; height: 92vw; }
+  .device-stack { position: relative; inset: auto; width: min(76vw, 440px); height: min(92vw, 530px); margin: 64px auto 0; }
   .device { width: 48vw; }
+}
+@media (max-width: 840px) and (min-width: 641px) {
+  .hero-copy { width: auto; max-width: 610px; padding: 100px clamp(28px, 6vw, 56px) 0; }
+  .device-stack { position: relative; inset: auto; width: min(58vw, 500px); height: min(59vw, 500px); margin: 58px auto 0; }
+}
+@media (min-width: 841px) {
+  .hero-copy { box-sizing: border-box; width: 46%; padding-right: 20px; }
+  .hero-copy h1 { max-width: none; font-size: clamp(2.6rem, 4.8vw, 4.4rem); }
 }
 .pin-fallback summary { display: flex; min-height: 48px; align-items: center; }.pin-fallback > p { margin: 4px 0 14px; color: #5d5a56; font-weight: 600; line-height: 1.5; }.pin-fallback > .button { margin-top: 16px; }
 .turnstile-field { min-height: 70px; padding: 12px; border: 2px solid #090909; border-radius: 12px; background: #fff; }.turnstile-field > p { margin: 8px 0 0; color: #5d5a56; font-size: .75rem; font-weight: 650; line-height: 1.4; }

@@ -39,6 +39,30 @@ test('the campaign and public form stay usable at 320px', async ({ page }) => {
   await expect(page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).resolves.toBe(true)
 })
 
+test('campaign copy and app previews stay separated across responsive breakpoints', async ({ page }) => {
+  for (const width of [320, 390, 640, 641, 768, 840]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/')
+    const gap = await page.evaluate(() => {
+      const copy = document.querySelector('.hero-copy')!.getBoundingClientRect()
+      const previews = document.querySelector('.device-stack')!.getBoundingClientRect()
+      return previews.top - copy.bottom
+    })
+    expect(gap, `vertical copy-to-preview gap at ${width}px`).toBeGreaterThanOrEqual(0)
+  }
+
+  for (const width of [841, 1000, 1200, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/')
+    const gap = await page.evaluate(() => {
+      const copy = document.querySelector('.hero-copy')!.getBoundingClientRect()
+      const previews = document.querySelector('.device-stack')!.getBoundingClientRect()
+      return previews.left - copy.right
+    })
+    expect(gap, `horizontal copy-to-preview gap at ${width}px`).toBeGreaterThanOrEqual(0)
+  }
+})
+
 test('closed and invalid links never expose a recommendation form', async ({ page }) => {
   await page.goto('/ask/demo-malaysia-closed')
   await expect(page.getByRole('heading', { name: 'This request is closed.' })).toBeVisible()
