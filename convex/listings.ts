@@ -3,6 +3,7 @@ import { internalMutation, internalQuery } from './_generated/server'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
 import { clean, sanitizePublicGuideStops } from './publicGuideSanitization'
+import { ownerMayTransitionListingStatus, reportHasActiveTakedown } from './moderationPolicy'
 
 const visibility = v.union(v.literal('public'), v.literal('unlisted'))
 const stop = v.object({
@@ -46,6 +47,9 @@ export const publishForOwner = internalMutation({
     const existing = await ctx.db.query('publicItineraryListings')
       .withIndex('by_ownerAuthUserId_and_localPathID', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('localPathID', args.localPathID))
       .unique()
+    if (!ownerMayTransitionListingStatus(existing?.status)) {
+      throw new ConvexError('This guide was taken down by moderation and cannot be republished. Contact Vazhi support for review.')
+    }
     const listingId = existing?._id ?? await ctx.db.insert('publicItineraryListings', {
       ownerAuthUserId: args.ownerAuthUserId,
       localPathID: args.localPathID,
@@ -86,6 +90,9 @@ export const archiveForOwner = internalMutation({
       .withIndex('by_ownerAuthUserId_and_localPathID', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('localPathID', args.localPathID))
       .unique()
     if (!listing) throw new ConvexError('Guide not found.')
+    if (!ownerMayTransitionListingStatus(listing.status)) {
+      throw new ConvexError('This guide was taken down by moderation and can only be restored by a moderator.')
+    }
     await ctx.db.patch(listing._id, { status: 'archived', updatedAt: Date.now() })
     return null
   },
@@ -197,15 +204,34 @@ export const reportPublicListing = internalMutation({
 export const listModerationQueue = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const reports = await ctx.db.query('reports')
+    const openReports = await ctx.db.query('reports')
       .withIndex('by_status_and_createdAt', (q) => q.eq('status', 'open'))
       .order('desc').take(100)
+    const reviewedReports = await ctx.db.query('reports')
+      .withIndex('by_status_and_createdAt', (q) => q.eq('status', 'reviewed'))
+      .order('desc').take(100)
+    const activeTakedownReports = []
+    for (const report of reviewedReports) {
+      if (!report.listingId) continue
+      const listing = await ctx.db.get(report.listingId)
+      if (listing?.status !== 'takedown') continue
+      const actions = await ctx.db.query('moderationActions')
+        .withIndex('by_reportId_and_createdAt', (q) => q.eq('reportId', report._id))
+        .order('desc').take(1)
+      if (reportHasActiveTakedown(actions)) activeTakedownReports.push(report)
+    }
+    const reports = [...openReports, ...activeTakedownReports]
     return Promise.all(reports.map(async (report) => {
       const listing = report.listingId ? await ctx.db.get(report.listingId) : null
+      const actions = await ctx.db.query('moderationActions')
+        .withIndex('by_reportId_and_createdAt', (q) => q.eq('reportId', report._id))
+        .order('desc').take(1)
       return {
         id: report._id,
         listingSlug: report.listingSlug,
         listingStatus: listing?.status ?? 'unavailable',
+        reportStatus: report.status,
+        canRestore: listing?.status === 'takedown' && reportHasActiveTakedown(actions),
         reason: report.reason,
         detail: report.detail,
         createdAt: report.createdAt,
@@ -224,11 +250,25 @@ export const resolveModerationReport = internalMutation({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId)
     if (!report) throw new ConvexError('Report not found.')
-    if (report.status !== 'open') throw new ConvexError('Report has already been resolved.')
     const listing = report.listingId ? await ctx.db.get(report.listingId) : null
+    const reportActions = await ctx.db.query('moderationActions')
+      .withIndex('by_reportId_and_createdAt', (q) => q.eq('reportId', report._id))
+      .order('desc').take(20)
+    const isRestoringThisReportTakedown = args.action === 'restore' &&
+      report.status === 'reviewed' &&
+      listing?.status === 'takedown' &&
+      reportHasActiveTakedown(reportActions)
+
+    if (args.action === 'restore') {
+      if (!isRestoringThisReportTakedown) {
+        throw new ConvexError('Only the active takedown report can restore a taken-down guide.')
+      }
+    } else if (report.status !== 'open') {
+      throw new ConvexError('Report has already been resolved.')
+    }
     if (args.action !== 'dismiss' && !listing) throw new ConvexError('Guide is unavailable.')
-    if (args.action === 'restore' && listing?.status !== 'takedown') {
-      throw new ConvexError('Only a taken-down guide can be restored.')
+    if (args.action === 'takedown' && listing?.status === 'takedown') {
+      throw new ConvexError('This guide is already taken down.')
     }
 
     const now = Date.now()
@@ -236,12 +276,9 @@ export const resolveModerationReport = internalMutation({
     if (args.action === 'takedown' && listing) {
       await ctx.db.patch(listing._id, { status: 'takedown', updatedAt: now })
     } else if (args.action === 'restore' && listing) {
-      const recentActions = await ctx.db.query('moderationActions')
-        .withIndex('by_listingId_and_createdAt', (q) => q.eq('listingId', listing._id))
-        .order('desc').take(100)
-      const priorDecision = recentActions.find((action) => action.action === 'takedown')
+      const priorDecision = reportActions[0]
       await ctx.db.patch(listing._id, {
-        status: priorDecision?.action === 'takedown' ? priorDecision.previousListingStatus ?? 'published' : 'published',
+        status: priorDecision?.previousListingStatus ?? 'published',
         updatedAt: now,
       })
     }
