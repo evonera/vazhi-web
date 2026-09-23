@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { getOutboxJobValidationError } from '../convex/syncValidation'
 import { toOwnerAskRequest, toPublicAskRequest } from '../convex/askProjections'
-import { orderAcceptedRecommendations } from '../convex/acceptedRecommendationOrder'
+import { hasPathStopCapacity, MAX_PATH_STOPS, orderAcceptedRecommendations } from '../convex/acceptedRecommendationOrder'
 import { isSafeReferenceURL } from '../src/lib/contracts'
 
 describe('reference URL validation', () => {
@@ -61,6 +61,11 @@ describe('Ask the Way response boundary', () => {
 })
 
 describe('accepted recommendation ordering', () => {
+  it('enforces a transaction-safe maximum Path size', () => {
+    expect(hasPathStopCapacity(MAX_PATH_STOPS - 1)).toBe(true)
+    expect(hasPathStopCapacity(MAX_PATH_STOPS)).toBe(false)
+  })
+
   it('orders the complete accepted set, including items beyond the former 100-item window', () => {
     const recommendations = Array.from({ length: 101 }, (_, index) => ({
       id: `recommendation-${index}`,
