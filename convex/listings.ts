@@ -1,4 +1,5 @@
 import { ConvexError, v } from 'convex/values'
+import { paginationOptsValidator } from 'convex/server'
 import { internalMutation, internalQuery } from './_generated/server'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
@@ -202,16 +203,19 @@ export const reportPublicListing = internalMutation({
 
 /** Server-only moderation queue. The HTTP boundary requires a separate secret. */
 export const listModerationQueue = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const openReports = await ctx.db.query('reports')
+  args: {
+    openReportsPagination: paginationOptsValidator,
+    takedownListingsPagination: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const openReportsPage = await ctx.db.query('reports')
       .withIndex('by_status_and_createdAt', (q) => q.eq('status', 'open'))
-      .order('desc').take(100)
-    const takenDownListings = await ctx.db.query('publicItineraryListings')
+      .order('desc').paginate(args.openReportsPagination)
+    const takenDownListingsPage = await ctx.db.query('publicItineraryListings')
       .withIndex('by_status_and_updatedAt', (q) => q.eq('status', 'takedown'))
-      .collect()
+      .order('desc').paginate(args.takedownListingsPagination)
     const activeTakedownReports = []
-    for (const listing of takenDownListings) {
+    for (const listing of takenDownListingsPage.page) {
       const actions = await ctx.db.query('moderationActions')
         .withIndex('by_listingId_and_createdAt', (q) => q.eq('listingId', listing._id))
         .order('desc').take(1)
@@ -220,8 +224,7 @@ export const listModerationQueue = internalQuery({
       const report = await ctx.db.get(latestAction.reportId)
       if (report?.status === 'reviewed') activeTakedownReports.push(report)
     }
-    const reports = [...openReports, ...activeTakedownReports]
-    return Promise.all(reports.map(async (report) => {
+    const hydrate = async (report: typeof openReportsPage.page[number]) => {
       const listing = report.listingId ? await ctx.db.get(report.listingId) : null
       const actions = await ctx.db.query('moderationActions')
         .withIndex('by_reportId_and_createdAt', (q) => q.eq('reportId', report._id))
@@ -236,7 +239,17 @@ export const listModerationQueue = internalQuery({
         detail: report.detail,
         createdAt: report.createdAt,
       }
-    }))
+    }
+    return {
+      openReports: {
+        ...openReportsPage,
+        page: await Promise.all(openReportsPage.page.map(hydrate)),
+      },
+      activeTakedowns: {
+        ...takenDownListingsPage,
+        page: await Promise.all(activeTakedownReports.map(hydrate)),
+      },
+    }
   },
 })
 
