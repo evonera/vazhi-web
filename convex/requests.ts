@@ -6,6 +6,7 @@ import { authComponent } from './betterAuth/auth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { toOwnerAskRequest, toPublicAskRequest } from './askProjections'
+import { orderAcceptedRecommendations } from './acceptedRecommendationOrder'
 
 const category = v.union(
   v.literal('food'), v.literal('hidden_spot'), v.literal('stay'),
@@ -145,8 +146,10 @@ export const createPathFromAccepted = mutation({
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const request = await ctx.db.get(args.requestId)
     if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Request not found.')
-    const accepted = await ctx.db.query('recommendations').withIndex('by_askRequestId_and_status_and_submittedAt', (q) => q.eq('askRequestId', request._id).eq('status', 'accepted')).order('asc').take(100)
-    accepted.sort((left, right) => (left.acceptedAt ?? left.submittedAt) - (right.acceptedAt ?? right.submittedAt))
+    const accepted = orderAcceptedRecommendations(await ctx.db.query('recommendations')
+      .withIndex('by_askRequestId_and_status_and_submittedAt', (q) => q.eq('askRequestId', request._id).eq('status', 'accepted'))
+      .order('asc')
+      .collect())
     if (accepted.length === 0) throw new ConvexError('Accept at least one recommendation first.')
     const pathId = await ctx.db.insert('paths', { ownerAuthUserId, journeyId: request.journeyId, title: args.title, status: 'draft', createdAt: Date.now() })
     for (const [orderIndex, recommendation] of accepted.entries()) {

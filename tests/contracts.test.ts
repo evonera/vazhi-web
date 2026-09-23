@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { getOutboxJobValidationError } from '../convex/syncValidation'
 import { toOwnerAskRequest, toPublicAskRequest } from '../convex/askProjections'
+import { orderAcceptedRecommendations } from '../convex/acceptedRecommendationOrder'
 import { isSafeReferenceURL } from '../src/lib/contracts'
 
 describe('reference URL validation', () => {
@@ -56,5 +57,21 @@ describe('Ask the Way response boundary', () => {
     const legacyRequest = { ...request, localJourneyID: undefined }
     expect(toOwnerAskRequest(legacyRequest)).toHaveProperty('localJourneyID', undefined)
     expect(toPublicAskRequest(legacyRequest)).not.toHaveProperty('localJourneyID')
+  })
+})
+
+describe('accepted recommendation ordering', () => {
+  it('orders the complete accepted set, including items beyond the former 100-item window', () => {
+    const recommendations = Array.from({ length: 101 }, (_, index) => ({
+      id: `recommendation-${index}`,
+      submittedAt: index + 1,
+      acceptedAt: index + 1,
+    }))
+    recommendations[100] = { ...recommendations[100], submittedAt: 101, acceptedAt: 0 }
+
+    const ordered = orderAcceptedRecommendations(recommendations)
+
+    expect(ordered).toHaveLength(101)
+    expect(ordered[0].id).toBe('recommendation-100')
   })
 })
