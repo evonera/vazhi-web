@@ -257,6 +257,14 @@ export const setRecommendationStatusForOwner = internalMutation({
     if (!recommendation) throw new ConvexError('Recommendation not found.')
     const request = await ctx.db.get(recommendation.askRequestId)
     if (!request || request.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Recommendation not found.')
+    if (args.status === 'accepted' && recommendation.status !== 'accepted') {
+      const accepted = await ctx.db.query('recommendations')
+        .withIndex('by_askRequestId_and_status_and_submittedAt', (q) => q.eq('askRequestId', request._id).eq('status', 'accepted'))
+        .take(MAX_PATH_STOPS)
+      if (!hasPathStopCapacity(accepted.length)) {
+        throw new ConvexError(`Paths support up to ${MAX_PATH_STOPS} accepted places. Ignore an accepted place before accepting another.`)
+      }
+    }
     await ctx.db.patch(recommendation._id, {
       status: args.status,
       acceptedAt: args.status === 'accepted' && recommendation.status !== 'accepted' ? Date.now() : recommendation.acceptedAt,
