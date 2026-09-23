@@ -15,13 +15,19 @@ secrets. Both Convex deployments have separate Better Auth, edge-ingress and
 rate-limit secrets. The production and preview public form currently rejects an
 unverified submission before it reaches Convex.
 
+Google Maps Platform billing is linked to `vazhi-509423`, and **Places API
+(New)** and **Routes API** are enabled. The first supplied key was created in
+a different Google Cloud project: a real Routes call succeeded, but Places
+Text Search returned `API_KEY_SERVICE_BLOCKED`. It is temporarily installed
+as `GOOGLE_PLACES_API_KEY` and `GOOGLE_ROUTES_API_KEY` in both Convex deployments
+for integration testing. **Do not call either deployment release-ready until
+both values are replaced with a key owned by `vazhi-509423`, restricted to
+Places API (New) and Routes API, and both operations pass live smoke tests.**
+The key belongs in Convex secrets only, never in Worker variables, a browser
+bundle, an iOS app, or Git. Rotate the user-shared key after migration.
+
 The following are deliberately absent until their providers are ready:
 
-- `GOOGLE_PLACES_API_KEY` and `GOOGLE_ROUTES_API_KEY`: Google Maps Platform
-  billing must first be eligible for the `vazhi` project. Enable **Places API
-  (New)** and **Routes API** only; do not enable Places API (Legacy). Create a
-  server-only key restricted to those APIs and put it in the corresponding
-  Convex deployment.
 - `APPLE_SERVICE_ID` and `APPLE_CLIENT_SECRET`: require Apple Developer
   enrollment and the Sign in with Apple web configuration. `APPLE_BUNDLE_ID`
   is already recorded, but it is not sufficient to activate web/native auth.
@@ -33,8 +39,9 @@ The following are deliberately absent until their providers are ready:
   listing and domain zone are available. The Workers URLs above are temporary
   public origins, not the final branded domain.
 
-Never substitute an unrelated Google key, a Paddle sandbox URL, or a Test Store
-key for any of these production settings.
+Never treat an unrelated Google key, a Paddle sandbox URL, or a Test Store key
+as a valid production setting. Presence-only preflight cannot prove that an API
+key belongs to the right Google project or authorizes the intended API.
 
 Run the release preflight separately in each deployment target's secret-injected environment. It reports only missing variable names, never values:
 
