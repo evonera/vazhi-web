@@ -32,6 +32,7 @@ export const publishForOwner = internalMutation({
     localPathID: v.string(),
     visibility,
     title: v.string(),
+    destination: v.string(),
     subtitle: v.string(),
     disclaimer: v.string(),
     approximateLocations: v.boolean(),
@@ -61,6 +62,7 @@ export const publishForOwner = internalMutation({
       listingId,
       versionNumber,
       title: clean(args.title, 120, 'Guide title'),
+      destination: clean(args.destination, 120, 'Guide destination'),
       subtitle: args.subtitle.trim().slice(0, 280),
       disclaimer: clean(args.disclaimer, 500, 'Guide disclaimer'),
       approximateLocations: args.approximateLocations,
@@ -109,7 +111,7 @@ export const getPublicProfileByHandle = internalQuery({
       listings: (await Promise.all(listings.map(async (listing) => {
         const version = listing.currentVersionId ? await ctx.db.get(listing.currentVersionId) : null
         if (!version) return null
-        return { slug: listing.slug, title: version.title, subtitle: version.subtitle, stopCount: version.stops.length, updatedAt: listing.updatedAt }
+        return { slug: listing.slug, title: version.title, destination: version.destination ?? '', subtitle: version.subtitle, stopCount: version.stops.length, updatedAt: version.createdAt }
       }))).filter((listing): listing is NonNullable<typeof listing> => listing !== null),
     }
   },
@@ -141,6 +143,7 @@ export const getPublicListing = internalQuery({
       visibility: listing.visibility,
       versionNumber: version.versionNumber,
       title: version.title,
+      destination: version.destination ?? '',
       subtitle: version.subtitle,
       disclaimer: version.disclaimer,
       approximateLocations: version.approximateLocations,
@@ -205,6 +208,7 @@ export const resolveModerationReport = internalMutation({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId)
     if (!report) throw new ConvexError('Report not found.')
+    if (report.status !== 'open') throw new ConvexError('Report has already been resolved.')
     const listing = report.listingId ? await ctx.db.get(report.listingId) : null
     if (args.action !== 'dismiss' && !listing) throw new ConvexError('Guide is unavailable.')
     if (args.action === 'restore' && listing?.status !== 'takedown') {

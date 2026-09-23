@@ -3,6 +3,7 @@ import { httpAction } from './_generated/server'
 import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
 import { matchesModeratorToken } from './moderationAuth'
+import { opaqueEdgeRateLimitKey } from './rateLimitKey'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 
@@ -19,9 +20,7 @@ function escapeXML(value: string) {
 }
 
 async function requestBucket(request: Request) {
-  const input = `${process.env.RATE_LIMIT_SALT ?? 'development-only'}:${request.headers.get('cf-connecting-ip') ?? 'unknown'}`
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return opaqueEdgeRateLimitKey(process.env.RATE_LIMIT_SALT, request.headers.get('cf-connecting-ip'), process.env.NODE_ENV === 'production')
 }
 
 async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
@@ -165,6 +164,7 @@ http.route({ path: '/api/owner/listings', method: 'POST', handler: httpAction(as
       localPathID: typeof input.localPathID === 'string' ? input.localPathID : '',
       visibility: input.visibility,
       title: typeof input.title === 'string' ? input.title : '',
+      destination: typeof input.destination === 'string' ? input.destination : '',
       subtitle: typeof input.subtitle === 'string' ? input.subtitle : '',
       disclaimer: typeof input.disclaimer === 'string' ? input.disclaimer : '',
       approximateLocations: input.approximateLocations === true,

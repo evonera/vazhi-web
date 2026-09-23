@@ -44,6 +44,7 @@ export type PlaceSearchResult = Place
 export type PublicListingSummary = {
   slug: string
   title: string
+  destination: string
   subtitle: string
   stopCount: number
   updatedAt: number
@@ -63,6 +64,7 @@ export type PublicListing = {
   visibility: 'public' | 'unlisted'
   versionNumber: number
   title: string
+  destination: string
   subtitle: string
   disclaimer: string
   approximateLocations: boolean
