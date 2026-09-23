@@ -64,7 +64,7 @@ export const reserveQuota = internalMutation({
   args: { ownerAuthUserId: v.string() },
   handler: async (ctx, args) => {
     const limited = await rateLimiter.limit(ctx, 'cloudHighlights', { key: args.ownerAuthUserId, throws: false })
-    if (!limited.ok) throw new ConvexError('You have reached the highlight limit. Please try again later.')
+    return limited.ok
   },
 })
 
@@ -98,7 +98,8 @@ export const generateSuggestions = internalAction({
       await ctx.runMutation(internal.ai.recordUsage, { ownerAuthUserId: args.ownerAuthUserId, provider: 'openai-compatible', model, outcome: 'rejected' })
       throw new ConvexError('That highlight request is too large. Select fewer or shorter notes.')
     }
-    await ctx.runMutation(internal.ai.reserveQuota, { ownerAuthUserId: args.ownerAuthUserId })
+    const hasQuota = await ctx.runMutation(internal.ai.reserveQuota, { ownerAuthUserId: args.ownerAuthUserId })
+    if (!hasQuota) return { kind: 'rate_limited' as const }
 
     const input = {
       journeyTitle: args.journeyTitle.trim(),
@@ -147,7 +148,7 @@ export const generateSuggestions = internalAction({
       if (!content) throw new ConvexError('Cloud intelligence returned an invalid response.')
       const suggestions = validatedSuggestions(JSON.parse(content), args.moments, model)
       await ctx.runMutation(internal.ai.recordUsage, { ownerAuthUserId: args.ownerAuthUserId, provider: 'openai-compatible', model, outcome: 'success' })
-      return { suggestions }
+      return { kind: 'success' as const, suggestions }
     } catch (error) {
       await ctx.runMutation(internal.ai.recordUsage, { ownerAuthUserId: args.ownerAuthUserId, provider: 'openai-compatible', model, outcome: 'failed' })
       if (error instanceof ConvexError) throw error

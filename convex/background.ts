@@ -2,6 +2,13 @@ import { v } from 'convex/values'
 import { internalAction, internalMutation } from './_generated/server'
 import { internal, components } from './_generated/api'
 import { Workpool, vOnCompleteArgs } from '@convex-dev/workpool'
+import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
+
+const routeRefreshLimiter = new RateLimiter(components.rateLimiter, {
+  routeRefresh: { kind: 'token bucket', rate: 5, period: HOUR, capacity: 5 },
+})
+const MAX_QUEUED_ROUTES_PER_OWNER = 5
+const MAX_QUEUED_ROUTES_GLOBAL = 100
 
 const waypoint = v.object({ latitude: v.number(), longitude: v.number() })
 const travelMode = v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE'), v.literal('TRANSIT'))
@@ -62,6 +69,30 @@ export const enqueueRouteSnapshotRefresh = internalMutation({
       .unique()
     if (existing) return { id: existing._id, state: existing.state }
 
+    const allowance = await routeRefreshLimiter.limit(ctx, 'routeRefresh', {
+      key: args.ownerAuthUserId,
+      throws: false,
+    })
+    if (!allowance.ok) return { kind: 'rate_limited' as const }
+
+    // Bound both per-owner and global backlog. These indexed reads stop one
+    // account or a burst of accounts from turning a two-worker pool into an
+    // unbounded Google Routes bill. Mutation serializability makes admission
+    // and insertion atomic with respect to competing requests.
+    const [ownerQueued, allQueued] = await Promise.all([
+      ctx.db.query('backgroundJobs')
+        .withIndex('by_ownerAuthUserId_and_state', (q) => q
+          .eq('ownerAuthUserId', args.ownerAuthUserId)
+          .eq('state', 'queued'))
+        .take(MAX_QUEUED_ROUTES_PER_OWNER),
+      ctx.db.query('backgroundJobs')
+        .withIndex('by_state', (q) => q.eq('state', 'queued'))
+        .take(MAX_QUEUED_ROUTES_GLOBAL),
+    ])
+    if (ownerQueued.length >= MAX_QUEUED_ROUTES_PER_OWNER || allQueued.length >= MAX_QUEUED_ROUTES_GLOBAL) {
+      return { kind: 'queue_full' as const }
+    }
+
     const jobId = await ctx.db.insert('backgroundJobs', {
       ownerAuthUserId: args.ownerAuthUserId,
       idempotencyKey: args.idempotencyKey,
@@ -77,6 +108,6 @@ export const enqueueRouteSnapshotRefresh = internalMutation({
       onComplete: internal.background.markRouteSnapshotFinished,
       context: { jobId },
     })
-    return { id: jobId, state: 'queued' as const }
+    return { kind: 'queued' as const, id: jobId, state: 'queued' as const }
   },
 })

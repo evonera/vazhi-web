@@ -1,81 +1,71 @@
 import { v } from 'convex/values'
 import { internalMutation } from './_generated/server'
 
+const BATCH_SIZE = 25
+
 /**
  * Claims pre-Better-Auth Ask-the-Way data for the same signed-in subject.
  *
  * The old records store the custom JWT token identifier. The caller supplies
  * it only after reading the current verified Convex identity in `http.ts`; it
- * is never accepted from an app/browser request body. The operation is safe to
- * repeat: it removes the legacy field as it backfills every document, and
- * recomputes denormalised counts from recommendation records instead of
- * trusting missing/stale legacy counters.
+ * is never accepted from an app/browser request body. Each invocation claims
+ * a fixed-size slice, removes the legacy field, and reports whether more rows
+ * remain. Repeated owner requests advance the migration without a large,
+ * unbounded transaction or collection scan.
  */
 export const claimLegacyAskData = internalMutation({
   args: { ownerAuthUserId: v.string(), legacyTokenIdentifier: v.string() },
   handler: async (ctx, args) => {
-    const journeys = await ctx.db.query('journeys')
+    const journeyBatch = await ctx.db.query('journeys')
       .withIndex('by_ownerTokenIdentifier_and_localID', (q) => q
         .eq('ownerTokenIdentifier', args.legacyTokenIdentifier))
-      .take(500)
-    const requests = await ctx.db.query('askRequests')
+      .take(BATCH_SIZE + 1)
+    const requestBatch = await ctx.db.query('askRequests')
       .withIndex('by_ownerTokenIdentifier_and_createdAt', (q) => q
         .eq('ownerTokenIdentifier', args.legacyTokenIdentifier))
-      .take(500)
+      .take(BATCH_SIZE + 1)
+    const pathBatch = await ctx.db.query('paths')
+      .withIndex('by_ownerTokenIdentifier_and_createdAt', (q) => q
+        .eq('ownerTokenIdentifier', args.legacyTokenIdentifier))
+      .take(BATCH_SIZE + 1)
 
-    const requestCounts = new Map<string, { recommendations: number; pending: number }>()
-    for (const request of requests) {
-      const recommendations = await ctx.db.query('recommendations')
-        .withIndex('by_askRequestId_and_submittedAt', (q) => q.eq('askRequestId', request._id))
-        .collect()
-      requestCounts.set(String(request._id), {
-        recommendations: recommendations.length,
-        pending: recommendations.filter((item) => item.status === 'pending').length,
-      })
-    }
-
-    for (const journey of journeys) {
-      const journeyRequests = await ctx.db.query('askRequests')
-        .withIndex('by_journeyId_and_createdAt', (q) => q.eq('journeyId', journey._id))
-        .collect()
-      const ownedRequests = journeyRequests.filter((request) =>
-        request.ownerTokenIdentifier === args.legacyTokenIdentifier || request.ownerAuthUserId === args.ownerAuthUserId)
-      const counts = ownedRequests.reduce((total, request) => {
-        const requestCount = requestCounts.get(String(request._id))
-        total.recommendations += requestCount?.recommendations ?? request.recommendationCount ?? 0
-        total.pending += requestCount?.pending ?? request.pendingRecommendationCount ?? 0
-        return total
-      }, { recommendations: 0, pending: 0 })
+    // Each pass reads and writes at most 25 documents per table. Claimed rows
+    // leave the legacy indexes, so a later authenticated request advances to
+    // the next bounded slice instead of rescanning the same records.
+    for (const journey of journeyBatch.slice(0, BATCH_SIZE)) {
       await ctx.db.patch(journey._id, {
         ownerAuthUserId: args.ownerAuthUserId,
         ownerTokenIdentifier: undefined,
-        askRequestCount: ownedRequests.length,
-        openAskRequestCount: ownedRequests.filter((request) => request.status === 'open').length,
-        recommendationCount: counts.recommendations,
-        pendingRecommendationCount: counts.pending,
+        askRequestCount: journey.askRequestCount ?? 0,
+        openAskRequestCount: journey.openAskRequestCount ?? 0,
+        recommendationCount: journey.recommendationCount ?? 0,
+        pendingRecommendationCount: journey.pendingRecommendationCount ?? 0,
       })
-
-      const paths = await ctx.db.query('paths')
-        .withIndex('by_journeyId_and_createdAt', (q) => q.eq('journeyId', journey._id))
-        .collect()
-      for (const path of paths) {
-        if (path.ownerTokenIdentifier === args.legacyTokenIdentifier || path.ownerAuthUserId === args.ownerAuthUserId) {
-          await ctx.db.patch(path._id, { ownerAuthUserId: args.ownerAuthUserId, ownerTokenIdentifier: undefined })
-        }
-      }
     }
 
-    for (const request of requests) {
+    for (const request of requestBatch.slice(0, BATCH_SIZE)) {
       const journey = await ctx.db.get(request.journeyId)
-      const counts = requestCounts.get(String(request._id))
       await ctx.db.patch(request._id, {
         ownerAuthUserId: args.ownerAuthUserId,
         ownerTokenIdentifier: undefined,
         localJourneyID: request.localJourneyID ?? journey?.localID,
-        recommendationCount: counts?.recommendations ?? request.recommendationCount ?? 0,
-        pendingRecommendationCount: counts?.pending ?? request.pendingRecommendationCount ?? 0,
+        recommendationCount: request.recommendationCount ?? 0,
+        pendingRecommendationCount: request.pendingRecommendationCount ?? 0,
       })
     }
-    return { journeys: journeys.length, requests: requests.length }
+
+    for (const path of pathBatch.slice(0, BATCH_SIZE)) {
+      await ctx.db.patch(path._id, {
+        ownerAuthUserId: args.ownerAuthUserId,
+        ownerTokenIdentifier: undefined,
+      })
+    }
+
+    return {
+      journeys: Math.min(journeyBatch.length, BATCH_SIZE),
+      requests: Math.min(requestBatch.length, BATCH_SIZE),
+      paths: Math.min(pathBatch.length, BATCH_SIZE),
+      hasMore: journeyBatch.length > BATCH_SIZE || requestBatch.length > BATCH_SIZE || pathBatch.length > BATCH_SIZE,
+    }
   },
 })

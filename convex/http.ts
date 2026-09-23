@@ -6,6 +6,7 @@ import { matchesModeratorToken } from './moderationAuth'
 import { opaqueEdgeRateLimitKey } from './rateLimitKey'
 import { acceptPublicReport } from './publicReportReceipt'
 import { parseModerationPagination } from './moderationPagination'
+import { parseRouteRefreshInput } from './routeRefreshValidation'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 
@@ -33,10 +34,17 @@ async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
   // supplied header/body—and the migration is idempotent.
   const legacyTokenIdentifier = (await ctx.auth.getUserIdentity())?.tokenIdentifier
   if (legacyTokenIdentifier) {
-    await ctx.runMutation(internal.migrations.claimLegacyAskData, {
-      ownerAuthUserId: String(user._id),
-      legacyTokenIdentifier,
-    })
+    // A bounded number of small transactions keeps normal owner requests
+    // responsive while continuing larger legacy accounts over subsequent
+    // requests. The total migration work per request is capped at 75 rows per
+    // table; the next call advances from the remaining legacy-index rows.
+    for (let pass = 0; pass < 3; pass += 1) {
+      const migration = await ctx.runMutation(internal.migrations.claimLegacyAskData, {
+        ownerAuthUserId: String(user._id),
+        legacyTokenIdentifier,
+      })
+      if (!migration.hasMore) break
+    }
   }
   return String(user._id)
 }
@@ -302,29 +310,54 @@ http.route({ path: '/api/owner/recommendations', method: 'PATCH', handler: httpA
 // requires the owner's custom-JWT session and forwards only the text fields
 // the native client selected in its per-request consent sheet.
 http.route({ path: '/api/ai/suggestions', method: 'POST', handler: httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
   try {
-    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
-    const input = await request.json() as Record<string, unknown>
-    const moments = Array.isArray(input.moments) ? input.moments : []
+    ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+  } catch {
+    return json({ message: 'Sign in again to use cloud intelligence.' }, 401)
+  }
+  const declaredLength = Number(request.headers.get('content-length') ?? 0)
+  if (declaredLength > 64 * 1024) return json({ message: 'Select fewer or shorter notes.' }, 413)
+  let input: Record<string, unknown>
+  try {
+    const body = await request.text()
+    if (new TextEncoder().encode(body).byteLength > 64 * 1024) return json({ message: 'Select fewer or shorter notes.' }, 413)
+    const parsed: unknown = JSON.parse(body)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return json({ message: 'Check the selected notes and try again.' }, 400)
+    input = parsed as Record<string, unknown>
+  } catch {
+    return json({ message: 'Check the selected notes and try again.' }, 400)
+  }
+  if (typeof input.journeyTitle !== 'string' || input.journeyTitle.trim().length === 0 || input.journeyTitle.length > 160 ||
+      (input.journeySummary !== undefined && (typeof input.journeySummary !== 'string' || input.journeySummary.length > 1_000)) ||
+      !Array.isArray(input.moments) || input.moments.length === 0 || input.moments.length > 20) {
+    return json({ message: 'Select between 1 and 20 valid notes.' }, 400)
+  }
+  const moments: Array<{ id: string; capturedAt: number; note: string; placeName?: string; locality?: string }> = []
+  for (const entry of input.moments) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return json({ message: 'One selected note is invalid.' }, 400)
+    const moment = entry as Record<string, unknown>
+    if (typeof moment.id !== 'string' || moment.id.length === 0 || moment.id.length > 128 ||
+        typeof moment.capturedAt !== 'number' || !Number.isFinite(moment.capturedAt) ||
+        typeof moment.note !== 'string' || moment.note.length > 2_000 ||
+        (moment.placeName !== undefined && (typeof moment.placeName !== 'string' || moment.placeName.length > 160)) ||
+        (moment.locality !== undefined && (typeof moment.locality !== 'string' || moment.locality.length > 160))) {
+      return json({ message: 'One selected note is invalid.' }, 400)
+    }
+    moments.push({ id: moment.id, capturedAt: moment.capturedAt, note: moment.note, placeName: moment.placeName as string | undefined, locality: moment.locality as string | undefined })
+  }
+  try {
     const result = await ctx.runAction(internal.ai.generateSuggestions, {
       ownerAuthUserId,
-      journeyTitle: typeof input.journeyTitle === 'string' ? input.journeyTitle : '',
+      journeyTitle: input.journeyTitle,
       journeySummary: typeof input.journeySummary === 'string' ? input.journeySummary : '',
-      moments: moments.map((entry) => {
-        const moment = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
-        return {
-          id: typeof moment.id === 'string' ? moment.id : '',
-          capturedAt: typeof moment.capturedAt === 'number' ? moment.capturedAt : 0,
-          note: typeof moment.note === 'string' ? moment.note : '',
-          placeName: typeof moment.placeName === 'string' ? moment.placeName : undefined,
-          locality: typeof moment.locality === 'string' ? moment.locality : undefined,
-        }
-      }),
+      moments,
     })
-    return json(result)
+    if (result.kind === 'rate_limited') return json({ message: 'You have reached the cloud-intelligence limit. Try again later.' }, 429)
+    return json({ suggestions: result.suggestions })
   } catch {
-    // Avoid logging or reflecting user-selected private text. The native app
-    // keeps the original Moment untouched and presents this generic outcome.
+    // Keep private note text out of logs and responses; preserve an honest
+    // provider/configuration failure without masking auth or input errors.
     return json({ message: 'Cloud intelligence is temporarily unavailable. Your journal was not changed.' }, 503)
   }
 }) })
@@ -373,19 +406,29 @@ http.route({ path: '/api/owner/routes', method: 'POST', handler: httpAction(asyn
 // Low-priority, post-edit refresh only. Never use this queue for route
 // creation, map search, or anything that needs an immediate response.
 http.route({ path: '/api/owner/routes/refresh', method: 'POST', handler: httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
   try {
-    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
-    const input = await request.json() as { requestID?: string; idempotencyKey?: string; stops?: Array<{ latitude?: number; longitude?: number }>; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' | 'TRANSIT' }
-    await ctx.runQuery(internal.requests.assertRequestOwner, { ownerAuthUserId, requestId: input.requestID ?? '' } as never)
-    const stops = (input.stops ?? []).flatMap((stop) => typeof stop.latitude === 'number' && typeof stop.longitude === 'number' ? [{ latitude: stop.latitude, longitude: stop.longitude }] : [])
-    if (stops.length < 2 || stops.length > 25 || !input.idempotencyKey || input.idempotencyKey.length > 128) {
-      return json({ message: 'That refresh request is invalid.' }, 400)
-    }
-    return json(await ctx.runMutation(internal.background.enqueueRouteSnapshotRefresh, {
-      ownerAuthUserId, idempotencyKey: input.idempotencyKey, stops, travelMode: input.travelMode ?? 'DRIVE',
-    }))
   } catch {
-    return json({ message: 'This route refresh is unavailable. You can still edit your Path.' }, 400)
+    return json({ message: 'Sign in again to refresh this route.' }, 401)
+  }
+  let raw: unknown
+  try { raw = await request.json() } catch { return json({ message: 'That refresh request is invalid.' }, 400) }
+  const input = parseRouteRefreshInput(raw)
+  if (!input) return json({ message: 'That refresh request is invalid.' }, 400)
+  try {
+    await ctx.runQuery(internal.requests.assertRequestOwner, { ownerAuthUserId, requestId: input.requestID } as never)
+  } catch {
+    return json({ message: 'This route is unavailable for the current account.' }, 404)
+  }
+  try {
+    const result = await ctx.runMutation(internal.background.enqueueRouteSnapshotRefresh, {
+      ownerAuthUserId, idempotencyKey: input.idempotencyKey, stops: input.stops, travelMode: input.travelMode,
+    })
+    if (result.kind === 'rate_limited') return json({ message: 'Route refresh limit reached. You can still edit your Path.' }, 429)
+    if (result.kind === 'queue_full') return json({ message: 'Route refresh queue is busy. You can still edit your Path.' }, 429)
+    return json(result)
+  } catch {
+    return json({ message: 'Route refresh is unavailable. You can still edit your Path.' }, 503)
   }
 }) })
 

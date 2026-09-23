@@ -86,7 +86,9 @@ export default defineSchema({
     title: v.string(),
     status: v.literal('draft'),
     createdAt: v.number(),
-  }).index('by_journeyId_and_createdAt', ['journeyId', 'createdAt']),
+  })
+    .index('by_journeyId_and_createdAt', ['journeyId', 'createdAt'])
+    .index('by_ownerTokenIdentifier_and_createdAt', ['ownerTokenIdentifier', 'createdAt']),
 
   pathStops: defineTable({
     pathId: v.id('paths'),
@@ -155,7 +157,10 @@ export default defineSchema({
     state: v.union(v.literal('queued'), v.literal('completed'), v.literal('failed')),
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
-  }).index('by_ownerAuthUserId_and_idempotencyKey', ['ownerAuthUserId', 'idempotencyKey']),
+  })
+    .index('by_ownerAuthUserId_and_idempotencyKey', ['ownerAuthUserId', 'idempotencyKey'])
+    .index('by_ownerAuthUserId_and_state', ['ownerAuthUserId', 'state'])
+    .index('by_state', ['state']),
 
   // Profiles are opt-in. No Journey, Moment, email, Apple subject, or billing
   // metadata is ever a public profile field.
