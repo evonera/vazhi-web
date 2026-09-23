@@ -10,6 +10,23 @@ test('a visitor can submit a named recommendation through a public request', asy
   await expect(page.getByRole('heading', { name: 'That’s on their path.' })).toBeVisible()
 })
 
+test('a contributor can name a manual pin when place search is unavailable', async ({ page }) => {
+  await page.goto('/ask/demo-malaysia')
+  await page.getByLabel('Your first name').fill('Fara')
+  await page.getByText('Can’t find it? Add a named pin.').click()
+  await page.getByLabel('Place name').fill('Old Town café')
+  await page.getByLabel('Latitude').fill('91')
+  await page.getByLabel('Longitude').fill('100.3327')
+  await page.getByRole('button', { name: 'Use this pin' }).click()
+  await expect(page.getByRole('alert')).toContainText('valid latitude')
+  await page.getByLabel('Latitude').fill('5.4164')
+  await page.getByRole('button', { name: 'Use this pin' }).click()
+  await expect(page.getByLabel('Find a place')).toHaveValue('Old Town café')
+  await page.getByLabel('Why is it worth it?').fill('Walk the nearby lanes at sunset.')
+  await page.getByRole('button', { name: 'Add to their path' }).click()
+  await expect(page.getByRole('heading', { name: 'That’s on their path.' })).toBeVisible()
+})
+
 test('the campaign and public form stay usable at 320px', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await page.goto('/')

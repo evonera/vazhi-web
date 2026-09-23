@@ -185,7 +185,7 @@ export const submitPublic = internalMutation({
     if (args.contributorHandle && args.contributorHandle.length > 50) throw new ConvexError('Handle is too long.')
     if (!args.place.name.trim() || args.note.trim().length === 0 || args.note.length > 500) throw new ConvexError('Add a place and a short recommendation.')
     if (args.referenceURL && !isHTTPSURL(args.referenceURL)) throw new ConvexError('Reference links must use HTTPS.')
-    if (args.place.latitude < -90 || args.place.latitude > 90 || args.place.longitude < -180 || args.place.longitude > 180) throw new ConvexError('Choose a valid map location.')
+    if (!Number.isFinite(args.place.latitude) || !Number.isFinite(args.place.longitude) || args.place.latitude < -90 || args.place.latitude > 90 || args.place.longitude < -180 || args.place.longitude > 180) throw new ConvexError('Choose a valid map location.')
     await ctx.db.insert('recommendations', { askRequestId: request._id, anonymous: args.anonymous, contributorName: args.anonymous ? undefined : args.contributorName?.trim(), contributorHandle: args.anonymous ? undefined : args.contributorHandle?.trim(), category: args.category, place: args.place, note: args.note.trim(), referenceURL: args.referenceURL, status: 'pending', submittedAt: Date.now() })
     const journey = await ctx.db.get(request.journeyId)
     await ctx.db.patch(request._id, { recommendationCount: (request.recommendationCount ?? 0) + 1, pendingRecommendationCount: (request.pendingRecommendationCount ?? 0) + 1 })
