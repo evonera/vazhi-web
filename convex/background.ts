@@ -3,8 +3,7 @@ import { internalAction, internalMutation } from './_generated/server'
 import { internal, components } from './_generated/api'
 import { Workpool, vOnCompleteArgs } from '@convex-dev/workpool'
 
-const waypoint = v.object({ latitude: v.number(), longitude: v.number() })
-const travelMode = v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE'), v.literal('TRANSIT'))
+const travelMode = v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE'))
 
 // This pool deliberately has no interactive traffic. It only refreshes route
 // snapshots after a user leaves the editing flow, so typeahead and Path

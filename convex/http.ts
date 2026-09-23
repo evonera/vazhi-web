@@ -1,6 +1,7 @@
 import { httpRouter } from 'convex/server'
 import { httpAction } from './_generated/server'
 import type { ActionCtx } from './_generated/server'
+import type { Doc } from './_generated/dataModel'
 import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
 import { parseRevenueCatWebhook, verifyRevenueCatWebhookSignature } from '../src/lib/revenuecatWebhook'
@@ -288,7 +289,7 @@ http.route({ path: '/api/owner/recommendations', method: 'GET', handler: httpAct
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const requestId = new URL(request.url).searchParams.get('requestID') ?? ''
     const result = await ctx.runQuery(internal.requests.listRecommendationsForOwner, { ownerAuthUserId, requestId } as never)
-    return json(result.map((recommendation) => ({
+    return json(result.map((recommendation: Doc<'recommendations'>) => ({
       id: recommendation._id,
       anonymous: recommendation.anonymous,
       contributorName: recommendation.contributorName,
@@ -396,7 +397,7 @@ http.route({ path: '/api/owner/places/search', method: 'POST', handler: httpActi
 http.route({ path: '/api/owner/routes', method: 'POST', handler: httpAction(async (ctx, request) => {
   try {
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
-    const input = await request.json() as { pathID?: string; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' | 'TRANSIT' }
+    const input = await request.json() as { pathID?: string; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' }
     const stops = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId, pathId: input.pathID ?? '' } as never)
     const travelMode = input.travelMode ?? 'DRIVE'
     const route = await ctx.runAction(internal.routes.compute, { stops, travelMode })
@@ -412,7 +413,7 @@ http.route({ path: '/api/owner/routes', method: 'POST', handler: httpAction(asyn
 http.route({ path: '/api/owner/routes/refresh', method: 'POST', handler: httpAction(async (ctx, request) => {
   try {
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
-    const input = await request.json() as { pathID?: string; idempotencyKey?: string; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' | 'TRANSIT' }
+    const input = await request.json() as { pathID?: string; idempotencyKey?: string; travelMode?: 'DRIVE' | 'WALK' | 'BICYCLE' }
     const stops = await ctx.runQuery(internal.routes.storedStopsForOwner, { ownerAuthUserId, pathId: input.pathID ?? '' } as never)
     if (stops.length < 2 || stops.length > 25 || !input.idempotencyKey || input.idempotencyKey.length > 128) {
       return json({ message: 'That refresh request is invalid.' }, 400)

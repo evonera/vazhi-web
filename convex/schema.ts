@@ -8,7 +8,7 @@ const category = v.union(
 )
 
 const place = v.object({
-  provider: v.union(v.literal('google'), v.literal('manual')),
+  provider: v.union(v.literal('google'), v.literal('apple'), v.literal('manual')),
   providerPlaceID: v.optional(v.string()),
   name: v.string(),
   address: v.optional(v.string()),
@@ -82,19 +82,40 @@ export default defineSchema({
   paths: defineTable({
     ownerAuthUserId: v.optional(v.string()),
     ownerTokenIdentifier: v.optional(v.string()),
-    journeyId: v.id('journeys'),
+    // Ask-generated drafts belong to a Journey. Locally-authored private Paths
+    // may be synced independently when the owner requests a server route.
+    journeyId: v.optional(v.id('journeys')),
+    localPathID: v.optional(v.string()),
     title: v.string(),
     status: v.literal('draft'),
     createdAt: v.number(),
-  }).index('by_journeyId_and_createdAt', ['journeyId', 'createdAt']),
+    updatedAt: v.optional(v.number()),
+  })
+    .index('by_journeyId_and_createdAt', ['journeyId', 'createdAt'])
+    .index('by_ownerAuthUserId_and_localPathID', ['ownerAuthUserId', 'localPathID']),
 
   pathStops: defineTable({
     pathId: v.id('paths'),
-    recommendationId: v.id('recommendations'),
+    recommendationId: v.optional(v.id('recommendations')),
+    localStopID: v.optional(v.string()),
     orderIndex: v.number(),
-    category,
+    category: v.optional(category),
+    title: v.optional(v.string()),
     place,
     notes: v.string(),
+  }).index('by_pathId_and_orderIndex', ['pathId', 'orderIndex']),
+
+  // Minimal private routing projection. Google Place IDs are the only durable
+  // Google Places field; Apple/manual pins keep user-originated coordinates.
+  privateRouteStops: defineTable({
+    pathId: v.id('paths'),
+    ownerAuthUserId: v.string(),
+    localStopID: v.string(),
+    orderIndex: v.number(),
+    provider: v.union(v.literal('google'), v.literal('apple'), v.literal('manual')),
+    providerPlaceID: v.optional(v.string()),
+    latitude: v.optional(v.number()),
+    longitude: v.optional(v.number()),
   }).index('by_pathId_and_orderIndex', ['pathId', 'orderIndex']),
 
   // Derived Google Routes data only. A short expiry prevents a route result
@@ -102,7 +123,7 @@ export default defineSchema({
   routeSnapshots: defineTable({
     ownerAuthUserId: v.string(),
     pathId: v.id('paths'),
-    travelMode: v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE'), v.literal('TRANSIT')),
+    travelMode: v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE')),
     distanceMeters: v.number(),
     duration: v.string(),
     encodedPolyline: v.string(),
