@@ -23,6 +23,7 @@ import type * as profiles from "../profiles.js";
 import type * as publicGuideSanitization from "../publicGuideSanitization.js";
 import type * as publicReportReceipt from "../publicReportReceipt.js";
 import type * as rateLimitKey from "../rateLimitKey.js";
+import type * as recommendationStatusTransition from "../recommendationStatusTransition.js";
 import type * as requests from "../requests.js";
 import type * as routeRefreshValidation from "../routeRefreshValidation.js";
 import type * as routes from "../routes.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   publicGuideSanitization: typeof publicGuideSanitization;
   publicReportReceipt: typeof publicReportReceipt;
   rateLimitKey: typeof rateLimitKey;
+  recommendationStatusTransition: typeof recommendationStatusTransition;
   requests: typeof requests;
   routeRefreshValidation: typeof routeRefreshValidation;
   routes: typeof routes;
