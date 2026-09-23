@@ -50,7 +50,7 @@ async function requestMetadata(url: URL, env: Env) {
     const response = await fetch(`${convexOrigin}/api/listing?handle=${encodeURIComponent(guideMatch![1])}&slug=${encodeURIComponent(guideMatch![2])}`)
     if (!response.ok) return ''
     const guide = await response.json() as PublicGuide
-    return metadata(`${guide.title} · @${guide.handle} | Vazhi`, guide.subtitle ?? guide.disclaimer ?? 'A versioned Vazhi guide.')
+    return metadata(`${guide.title} · @${guide.handle} | Vazhi`, guide.subtitle || guide.disclaimer || 'A versioned Vazhi guide.')
   } catch { return '' }
 }
 
@@ -88,6 +88,7 @@ const worker = {
       }
     }
 
+    if (wantsHTML) return env.ASSETS.fetch(new Request(new URL('/index.html', url)))
     return env.ASSETS.fetch(request)
   },
 }

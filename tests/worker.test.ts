@@ -51,6 +51,46 @@ describe('public metadata', () => {
     }
   })
 
+  it('serves the SPA document to HTML clients when dynamic metadata is unavailable', async () => {
+    const originalFetch = globalThis.fetch
+    let assetPath = ''
+    globalThis.fetch = async () => new Response('Unavailable', { status: 503 })
+
+    try {
+      const response = await worker.fetch(new Request('https://vazhi.app/@rhea/penang-after-dark', {
+        headers: { accept: 'text/html', 'sec-fetch-mode': 'no-cors' },
+      }), environment({
+        CONVEX_HTTP_URL: 'https://vazhi.convex.site',
+        ASSETS: { fetch: async (request) => {
+          assetPath = new URL(request.url).pathname
+          return new Response('<html>Vazhi</html>', { status: 200 })
+        } },
+      }))
+
+      expect(response.status).toBe(200)
+      expect(assetPath).toBe('/index.html')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('uses non-empty fallback metadata when a guide subtitle is blank', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      handle: 'rhea', title: 'Penang after dark', subtitle: '', disclaimer: '',
+    }), { headers: { 'content-type': 'application/json' } })
+
+    try {
+      const response = await worker.fetch(new Request('https://vazhi.app/@rhea/penang-after-dark', {
+        headers: { accept: 'text/html' },
+      }), environment({ CONVEX_HTTP_URL: 'https://vazhi.convex.site' }))
+
+      expect(await response.text()).toContain('content="A versioned Vazhi guide."')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('does not cache an unavailable Ask card', async () => {
     const originalFetch = globalThis.fetch
     globalThis.fetch = async () => new Response('Not found', { status: 404 })
