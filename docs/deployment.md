@@ -18,10 +18,10 @@ unverified submission before it reaches Convex.
 Google Maps Platform billing is linked to `vazhi-509423`, and **Places API
 (New)** and **Routes API** are enabled. The first supplied key was created in
 a different Google Cloud project: a real Routes call succeeded, but Places
-Text Search returned `API_KEY_SERVICE_BLOCKED`. It is temporarily installed
-as `GOOGLE_PLACES_API_KEY` and `GOOGLE_ROUTES_API_KEY` in both Convex deployments
-for integration testing. **Do not call either deployment release-ready until
-both values are replaced with a key owned by `vazhi-509423`, restricted to
+Text Search returned `API_KEY_SERVICE_BLOCKED`. It was removed from both
+Convex deployments after this diagnostic. **Do not call either deployment
+release-ready until `GOOGLE_PLACES_API_KEY` and `GOOGLE_ROUTES_API_KEY` are
+set to a key owned by `vazhi-509423`, restricted to
 Places API (New) and Routes API, and both operations pass live smoke tests.**
 The key belongs in Convex secrets only, never in Worker variables, a browser
 bundle, an iOS app, or Git. Rotate the user-shared key after migration.
