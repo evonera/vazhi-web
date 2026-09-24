@@ -4,7 +4,7 @@ import { internalMutation, internalQuery } from './_generated/server'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
 import { clean, sanitizePublicGuideStops } from './publicGuideSanitization'
-import { ownerMayTransitionListingStatus, reportHasActiveTakedown } from './moderationPolicy'
+import { isDuplicateOpenReport, latestTakedownReportId, ownerMayTransitionListingStatus, reportHasActiveTakedown } from './moderationPolicy'
 
 const visibility = v.union(v.literal('public'), v.literal('unlisted'))
 const stop = v.object({
@@ -188,8 +188,16 @@ export const reportPublicListing = internalMutation({
     if (listing) {
       const { ok } = await reportLimiter.limit(ctx, 'publicListingReport', { key: `${listing._id}:${args.rateLimitKey}` })
       if (!ok) return null
-      const duplicate = await ctx.db.query('reports').withIndex('by_listingId_and_reportFingerprint', (q) => q.eq('listingId', listing._id).eq('reportFingerprint', args.rateLimitKey)).unique()
-      if (duplicate) return null
+      // Only coalesce retries while a matching report is still awaiting
+      // moderation. Once dismissed or reviewed, the same reporter may submit
+      // a new report about the still-published guide.
+      const duplicate = await ctx.db.query('reports')
+        .withIndex('by_listingId_and_status_and_reportFingerprint', (q) => q
+          .eq('listingId', listing._id)
+          .eq('status', 'open')
+          .eq('reportFingerprint', args.rateLimitKey))
+        .first()
+      if (isDuplicateOpenReport(duplicate?.status)) return null
       await ctx.db.insert('reports', {
         targetType: 'listing', listingId: listing._id, listingSlug: listing.slug,
         reportFingerprint: args.rateLimitKey,
@@ -216,12 +224,19 @@ export const listModerationQueue = internalQuery({
       .order('desc').paginate(args.takedownListingsPagination)
     const activeTakedownReports = []
     for (const listing of takenDownListingsPage.page) {
-      const actions = await ctx.db.query('moderationActions')
+      // Prefer the explicit active report. For listings taken down before
+      // this field existed, recover from the newest takedown action (not the
+      // newest action of any kind, which may be a decision on another report).
+      const legacyActions = listing.activeTakedownReportId ? [] : await ctx.db.query('moderationActions')
         .withIndex('by_listingId_and_createdAt', (q) => q.eq('listingId', listing._id))
+        .order('desc').take(100)
+      const reportId = listing.activeTakedownReportId ?? latestTakedownReportId(legacyActions)
+      if (!reportId) continue
+      const reportActions = await ctx.db.query('moderationActions')
+        .withIndex('by_reportId_and_createdAt', (q) => q.eq('reportId', reportId))
         .order('desc').take(1)
-      const latestAction = actions[0]
-      if (!latestAction || latestAction.action !== 'takedown' || !reportHasActiveTakedown(actions)) continue
-      const report = await ctx.db.get(latestAction.reportId)
+      if (!reportHasActiveTakedown(reportActions)) continue
+      const report = await ctx.db.get(reportId)
       if (report?.status === 'reviewed') activeTakedownReports.push(report)
     }
     const hydrate = async (report: typeof openReportsPage.page[number]) => {
@@ -287,11 +302,16 @@ export const resolveModerationReport = internalMutation({
     const now = Date.now()
     const previousListingStatus = listing?.status
     if (args.action === 'takedown' && listing) {
-      await ctx.db.patch(listing._id, { status: 'takedown', updatedAt: now })
+      await ctx.db.patch(listing._id, {
+        status: 'takedown',
+        activeTakedownReportId: report._id,
+        updatedAt: now,
+      })
     } else if (args.action === 'restore' && listing) {
       const priorDecision = reportActions[0]
       await ctx.db.patch(listing._id, {
         status: priorDecision?.previousListingStatus ?? 'published',
+        activeTakedownReportId: undefined,
         updatedAt: now,
       })
     }

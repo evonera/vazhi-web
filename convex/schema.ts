@@ -154,6 +154,9 @@ export default defineSchema({
     visibility: v.union(v.literal('public'), v.literal('unlisted')),
     status: v.union(v.literal('published'), v.literal('archived'), v.literal('takedown')),
     currentVersionId: v.optional(v.id('itineraryVersions')),
+    // The report currently keeping this listing down; unrelated moderation
+    // decisions must not make its restore action disappear from the queue.
+    activeTakedownReportId: v.optional(v.id('reports')),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -198,6 +201,7 @@ export default defineSchema({
   })
     .index('by_listingId_and_createdAt', ['listingId', 'createdAt'])
     .index('by_listingId_and_reportFingerprint', ['listingId', 'reportFingerprint'])
+    .index('by_listingId_and_status_and_reportFingerprint', ['listingId', 'status', 'reportFingerprint'])
     .index('by_status_and_createdAt', ['status', 'createdAt']),
 
   // Moderation decisions are append-only audit records; the shared dashboard
