@@ -19,7 +19,7 @@ export function reportHasActiveTakedown(actionsNewestFirst: ModerationActionSumm
 /** An unrelated report's dismissal must not shadow an earlier takedown. */
 export function latestTakedownReportId<T extends { action: ModerationActionType; reportId: string }>(
   listingActionsNewestFirst: T[],
-) {
+): T['reportId'] | undefined {
   return listingActionsNewestFirst.find((action) => action.action === 'takedown')?.reportId
 }
 

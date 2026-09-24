@@ -223,7 +223,7 @@ export const listModerationQueue = internalQuery({
     const takenDownListingsPage = await ctx.db.query('publicItineraryListings')
       .withIndex('by_status_and_updatedAt', (q) => q.eq('status', 'takedown'))
       .order('desc').paginate(args.takedownListingsPagination)
-    const activeTakedownReports = []
+    const activeTakedownReports: typeof openReportsPage.page = []
     for (const listing of takenDownListingsPage.page) {
       // Prefer the explicit active report. For listings taken down before
       // this field existed, recover from the newest takedown action (not the
