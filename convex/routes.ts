@@ -1,5 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { internalAction } from './_generated/server'
+import { hasValidCoordinates } from './mapsValidation'
 
 const waypoint = v.object({ latitude: v.number(), longitude: v.number() })
 
@@ -15,6 +16,9 @@ export const compute = internalAction({
   handler: async (_ctx, args) => {
     if (args.stops.length < 2) throw new ConvexError('Choose at least two stops to calculate a route.')
     if (args.stops.length > 25) throw new ConvexError('A Path can route up to 25 stops at once.')
+    if (args.stops.some((point) => !hasValidCoordinates(point))) {
+      throw new ConvexError('Route stops must contain valid geographic coordinates.')
+    }
     const apiKey = process.env.GOOGLE_ROUTES_API_KEY
     if (!apiKey) throw new ConvexError('Routing is not configured.')
     const toWaypoint = (point: { latitude: number; longitude: number }) => ({ location: { latLng: { latitude: point.latitude, longitude: point.longitude } } })

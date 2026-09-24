@@ -1,5 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { internalAction } from './_generated/server'
+import { buildPlaceAutocompleteInput, buildPlaceSearchQuery } from './mapsValidation'
 
 type GooglePlace = {
   id?: string
@@ -19,7 +20,10 @@ export const search = internalAction({
   handler: async (_ctx, args) => {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY
     if (!apiKey) throw new ConvexError('Place search is not configured.')
-    const query = `${args.query.trim()} ${args.destination.trim()}`.trim()
+    const queryText = args.query.trim()
+    const destination = args.destination.trim()
+    if (queryText.length > 200 || destination.length > 120) throw new ConvexError('Place search input is too long.')
+    const query = buildPlaceSearchQuery(queryText, destination)
     if (query.length < 3) return []
     const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
       method: 'POST',
@@ -40,7 +44,13 @@ export const autocomplete = internalAction({
     const apiKey = process.env.GOOGLE_PLACES_API_KEY
     const input = args.input.trim()
     if (input.length < 2) return []
+    const destination = args.destination?.trim() ?? ''
+    if (input.length > 200 || destination.length > 120) throw new ConvexError('Place search input is too long.')
     if (!apiKey) throw new ConvexError('Place search is not configured.')
+    // Places Autocomplete has no text-destination bias field. Include the
+    // Journey destination as query context instead of passing a bogus cursor
+    // offset that has no spatial meaning.
+    const contextualInput = buildPlaceAutocompleteInput(input, destination)
     const response = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
       method: 'POST',
       headers: {
@@ -48,7 +58,7 @@ export const autocomplete = internalAction({
         'X-Goog-Api-Key': apiKey,
         'X-Goog-FieldMask': 'suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat',
       },
-      body: JSON.stringify({ input, includedRegionCodes: [], ...(args.destination?.trim() ? { inputOffset: input.length } : {}) }),
+      body: JSON.stringify({ input: contextualInput }),
     })
     if (!response.ok) throw new ConvexError('Place search is temporarily unavailable.')
     const body = await response.json() as { suggestions?: Array<{ placePrediction?: { placeId?: string; text?: { text?: string }; structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } } } }> }
@@ -63,6 +73,7 @@ export const details = internalAction({
   args: { placeID: v.string() },
   handler: async (_ctx, args) => {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY
+    if (args.placeID.trim().length < 1 || args.placeID.length > 255) throw new ConvexError('A valid Google Place ID is required.')
     if (!apiKey) throw new ConvexError('Place search is not configured.')
     const response = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(args.placeID)}`, {
       headers: {
