@@ -32,6 +32,7 @@ export const publishForOwner = internalMutation({
   args: {
     ownerAuthUserId: v.string(),
     localPathID: v.string(),
+    privacyReviewed: v.literal(true),
     visibility,
     title: v.string(),
     destination: v.string(),

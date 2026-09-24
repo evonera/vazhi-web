@@ -130,7 +130,18 @@ http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (
 }) })
 
 http.route({ path: '/api/reports', method: 'POST', handler: httpAction(async (ctx, request) => {
-  const receipt = await acceptPublicReport(request, async (input) => {
+  const rawBody = await request.text()
+  // Reports always return the same receipt so the endpoint cannot be used as
+  // a guide-existence oracle. Only edge-signed bodies reach persistence.
+  if (!await hasVerifiedPublicIngress(request, rawBody)) {
+    return json({ accepted: true })
+  }
+  const reportRequest = new Request(request.url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: rawBody,
+  })
+  const receipt = await acceptPublicReport(reportRequest, async (input) => {
     await ctx.runMutation(internal.listings.reportPublicListing, {
       listingSlug: typeof input.listingSlug === 'string' ? input.listingSlug : '',
       reason: typeof input.reason === 'string' ? input.reason : '',
@@ -192,6 +203,7 @@ http.route({ path: '/api/owner/listings', method: 'POST', handler: httpAction(as
     const result = await ctx.runMutation(internal.listings.publishForOwner, {
       ownerAuthUserId,
       localPathID: typeof input.localPathID === 'string' ? input.localPathID : '',
+      privacyReviewed: input.privacyReviewed === true,
       visibility: input.visibility,
       title: typeof input.title === 'string' ? input.title : '',
       destination: typeof input.destination === 'string' ? input.destination : '',

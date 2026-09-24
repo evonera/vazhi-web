@@ -45,7 +45,7 @@ async function turnstilePasses(input: Record<string, unknown>, request: Request,
   return (await response.json() as { success?: boolean }).success === true
 }
 
-type SignedPublicIngressPath = '/api/recommendations' | '/places/search'
+type SignedPublicIngressPath = '/api/recommendations' | '/api/reports' | '/places/search'
 
 async function forwardSignedPublicIngress(
   path: SignedPublicIngressPath,
@@ -119,6 +119,9 @@ const worker = {
     const url = new URL(request.url)
     if (request.method === 'POST' && url.pathname === '/api/recommendations') {
       return forwardSignedPublicIngress('/api/recommendations', request, env)
+    }
+    if (request.method === 'POST' && url.pathname === '/api/reports') {
+      return forwardSignedPublicIngress('/api/reports', request, env)
     }
     if (request.method === 'POST' && url.pathname === '/places/search') {
       return forwardSignedPublicIngress('/places/search', request, env)

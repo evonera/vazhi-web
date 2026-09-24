@@ -29,7 +29,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // Public writes/searches use the same origin so Cloudflare can verify
 // Turnstile, derive an opaque edge rate key, and sign the untouched body.
 async function publicIngress<T>(
-  path: '/api/recommendations' | '/places/search',
+  path: '/api/recommendations' | '/api/reports' | '/places/search',
   init: RequestInit,
 ): Promise<T> {
   const response = await fetch(path, {
@@ -70,7 +70,7 @@ export const publicGuideAPI = {
     return request<PublicListing>(`/api/listing?handle=${encodeURIComponent(handle)}&slug=${encodeURIComponent(slug)}${version}`)
   },
   reportListing(listingSlug: string, reason: string, detail?: string) {
-    return request<{ accepted: true }>('/api/reports', {
+    return publicIngress<{ accepted: true }>('/api/reports', {
       method: 'POST', body: JSON.stringify({ listingSlug, reason, detail }),
     })
   },
