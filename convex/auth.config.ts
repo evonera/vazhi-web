@@ -1,8 +1,9 @@
 import { getAuthConfigProvider } from '@convex-dev/better-auth/auth-config'
 import type { AuthConfig } from 'convex/server'
 
-// Better Auth issues the short-lived custom JWT accepted by Convex. The issuer
-// and JWKS are derived from CONVEX_SITE_URL, never shipped to the browser.
+// Better Auth issues the short-lived custom JWT accepted by Convex. Convex
+// resolves the public keys through Better Auth's server-side JWKS endpoint;
+// private key material remains in the Better Auth component database.
 export default {
-  providers: [getAuthConfigProvider({ jwks: process.env.BETTER_AUTH_JWKS })],
+  providers: [getAuthConfigProvider()],
 } satisfies AuthConfig

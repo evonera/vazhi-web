@@ -4,6 +4,8 @@ import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
+import { parseNativePlaceSearchInput } from '../src/lib/nativePlaceSearch'
+import { toNativePlace } from '../src/lib/nativePlaceProjection'
 
 const http = httpRouter()
 
@@ -157,6 +159,39 @@ http.route({ path: '/api/owner/recommendations', method: 'PATCH', handler: httpA
   } catch {
     // Do not distinguish a foreign recommendation from a malformed one.
     return json({ message: 'That recommendation could not be updated.' }, 404)
+  }
+}) })
+
+// Native owner search is authenticated and quota-limited before a billable
+// Google request. Signed-out clients keep using Apple search or a manual pin.
+http.route({ path: '/api/owner/places/search', method: 'POST', handler: httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
+  try {
+    ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+  } catch {
+    return json({ message: 'Sign in to search Google places.' }, 401)
+  }
+
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return json({ message: 'Enter a place to search.' }, 400)
+  }
+  const input = parseNativePlaceSearchInput(body)
+  if (!input) {
+    return json({ message: 'Enter a 3–100 character place search and a valid Journey destination.' }, 400)
+  }
+  try {
+    await ctx.runMutation(internal.placeLimits.consumeOwnerSearch, { ownerAuthUserId })
+  } catch {
+    return json({ message: 'Place search limit reached. Try again later.' }, 429)
+  }
+  try {
+    const places = await ctx.runAction(internal.places.search, input)
+    return json(places.map(toNativePlace))
+  } catch {
+    return json({ message: 'Place search is temporarily unavailable.' }, 503)
   }
 }) })
 
