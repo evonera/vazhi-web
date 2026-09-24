@@ -3,6 +3,12 @@ import { convexHTTPURL } from './convexConfig'
 
 const apiOrigin = convexHTTPURL
 
+export function requestHeaders(init?: RequestInit) {
+  const headers = new Headers(init?.headers)
+  if (init?.body && !headers.has('content-type')) headers.set('content-type', 'application/json')
+  return headers
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!apiOrigin) {
     throw new Error('This Vazhi link is not connected to its server yet.')
@@ -10,7 +16,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const response = await fetch(`${apiOrigin}${path}`, {
     ...init,
-    headers: { 'content-type': 'application/json', ...init?.headers },
+    headers: requestHeaders(init),
   })
 
   if (!response.ok) {
@@ -28,7 +34,7 @@ async function publicIngress<T>(
 ): Promise<T> {
   const response = await fetch(path, {
     ...init,
-    headers: { 'content-type': 'application/json', ...init.headers },
+    headers: requestHeaders(init),
   })
   if (!response.ok) {
     const body = await response.json().catch(() => null)
