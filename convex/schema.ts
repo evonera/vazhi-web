@@ -23,7 +23,7 @@ export default defineSchema({
     ownerAuthUserId: v.string(),
     localID: v.string(),
     title: v.string(),
-    destination: v.optional(v.string()),
+    destination: v.string(),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),
     askRequestCount: v.number(),
