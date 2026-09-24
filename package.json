@@ -11,6 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test",
+    "preflight:release": "node scripts/preflight.mjs",
     "convex:dev": "convex dev",
     "deploy": "npm run build && wrangler deploy"
   },
