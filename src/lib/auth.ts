@@ -1,6 +1,7 @@
 import { createAuthClient } from 'better-auth/react'
+import { convexHTTPURL } from './convexConfig'
 
-const baseURL = import.meta.env.VITE_CONVEX_HTTP_URL
+const baseURL = convexHTTPURL
 
 export const authClient = createAuthClient({ baseURL })
 

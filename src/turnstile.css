@@ -1,0 +1,16 @@
+.turnstile-field {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.turnstile-field > div {
+  min-height: 65px;
+}
+
+.turnstile-field p {
+  margin: 0;
+  color: #4d4145;
+  font-size: .82rem;
+  line-height: 1.35;
+}
