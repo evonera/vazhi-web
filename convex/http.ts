@@ -6,6 +6,8 @@ import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { parseNativePlaceSearchInput } from '../src/lib/nativePlaceSearch'
 import { toNativePlace } from '../src/lib/nativePlaceProjection'
+import { developmentIngressSalt, opaqueRateLimitKey } from '../src/lib/publicIngress'
+import { verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
 
 const http = httpRouter()
 
@@ -20,9 +22,11 @@ function escapeXML(value: string) {
 }
 
 async function requestBucket(request: Request) {
-  const input = `${process.env.RATE_LIMIT_SALT ?? 'development-only'}:${request.headers.get('cf-connecting-ip') ?? 'unknown'}`
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  const forwarded = request.headers.get('x-vazhi-rate-key')
+  if (forwarded && /^[a-f0-9]{64}$/i.test(forwarded)) return forwarded
+  const salt = developmentIngressSalt(process.env.VAZHI_ENVIRONMENT, process.env.RATE_LIMIT_SALT)
+  if (!salt) throw new Error('Public ingress is not configured.')
+  return opaqueRateLimitKey(request.headers.get('cf-connecting-ip'), salt)
 }
 
 async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
@@ -30,16 +34,14 @@ async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
   return String(user._id)
 }
 
-async function verifyTurnstile(token: string | undefined, remoteIP: string | null) {
-  const secret = process.env.TURNSTILE_SECRET_KEY
-  if (!secret) return process.env.NODE_ENV !== 'production'
-  if (!token) return false
-  const form = new FormData()
-  form.set('secret', secret)
-  form.set('response', token)
-  if (remoteIP) form.set('remoteip', remoteIP)
-  const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: form })
-  return (await response.json() as { success?: boolean }).success === true
+async function hasVerifiedPublicIngress(request: Request, rawBody: string) {
+  const signingSecret = process.env.EDGE_INGRESS_SIGNING_SECRET
+  if (!signingSecret) return process.env.VAZHI_ENVIRONMENT === 'development'
+  return verifyEdgeIngressSignature({
+    rawBody,
+    signatureHeader: request.headers.get('x-vazhi-edge-signature'),
+    signingSecret,
+  })
 }
 
 http.route({ path: '/api/ask', method: 'GET', handler: httpAction(async (ctx, request) => {
@@ -60,10 +62,12 @@ http.route({ path: '/og/ask', method: 'GET', handler: httpAction(async (ctx, req
 }) })
 
 http.route({ path: '/api/recommendations', method: 'POST', handler: httpAction(async (ctx, request) => {
-  const input = await request.json() as Record<string, unknown>
-  const validChallenge = await verifyTurnstile(typeof input.turnstileToken === 'string' ? input.turnstileToken : undefined, request.headers.get('cf-connecting-ip'))
-  if (!validChallenge) return json({ message: 'Please complete the verification and try again.' }, 400)
+  const rawBody = await request.text()
+  if (!await hasVerifiedPublicIngress(request, rawBody)) {
+    return json({ message: 'Please complete the verification and try again.' }, 400)
+  }
   try {
+    const input = JSON.parse(rawBody) as Record<string, unknown>
     await ctx.runMutation(internal.requests.submitPublic, {
       slug: typeof input.slug === 'string' ? input.slug : '',
       rateLimitKey: await requestBucket(request),
@@ -78,6 +82,27 @@ http.route({ path: '/api/recommendations', method: 'POST', handler: httpAction(a
     return json({ accepted: true })
   } catch {
     return json({ message: 'We could not add that recommendation. Check the form and try again.' }, 400)
+  }
+}) })
+
+http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (ctx, request) => {
+  const rawBody = await request.text()
+  if (!await hasVerifiedPublicIngress(request, rawBody)) {
+    return json({ message: 'Place search is temporarily unavailable.' }, 503)
+  }
+  try {
+    const input = JSON.parse(rawBody) as { query?: string; slug?: string }
+    const query = input.query?.trim() ?? ''
+    if (query.length < 3 || query.length > 100) {
+      return json({ message: 'Enter 3–100 characters to search.' }, 400)
+    }
+    const { destination } = await ctx.runMutation(internal.requests.preparePublicPlaceSearch, {
+      slug: input.slug ?? '',
+      rateLimitKey: await requestBucket(request),
+    })
+    return json(await ctx.runAction(internal.places.search, { query, destination }))
+  } catch {
+    return json({ message: 'Place search is temporarily unavailable.' }, 503)
   }
 }) })
 

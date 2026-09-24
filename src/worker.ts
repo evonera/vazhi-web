@@ -1,3 +1,6 @@
+import { edgeIngressSignature } from './lib/edgeIngressSignature'
+import { mayBypassTurnstile, opaqueRateLimitKey } from './lib/publicIngress'
+
 interface AssetFetcher {
   fetch(request: Request): Promise<Response>
 }
@@ -5,6 +8,10 @@ interface AssetFetcher {
 export interface Env {
   ASSETS: AssetFetcher
   CONVEX_HTTP_URL?: string
+  EDGE_INGRESS_SIGNING_SECRET?: string
+  RATE_LIMIT_SALT?: string
+  TURNSTILE_SECRET_KEY?: string
+  VAZHI_ENVIRONMENT?: string
   IOS_APP_STORE_URL?: string
 }
 
@@ -12,6 +19,85 @@ type PublicAsk = { slug: string; prompt: string; destination: string }
 
 function escapeHTML(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character)
+}
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+  })
+}
+
+async function turnstilePasses(input: Record<string, unknown>, request: Request, env: Env) {
+  if (mayBypassTurnstile(env.VAZHI_ENVIRONMENT, env.TURNSTILE_SECRET_KEY)) return true
+  if (!env.TURNSTILE_SECRET_KEY) return false
+  const token = typeof input.turnstileToken === 'string' ? input.turnstileToken : undefined
+  if (!token) return false
+  const form = new FormData()
+  form.set('secret', env.TURNSTILE_SECRET_KEY)
+  form.set('response', token)
+  const remoteIP = request.headers.get('cf-connecting-ip')
+  if (remoteIP) form.set('remoteip', remoteIP)
+  const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+    method: 'POST',
+    body: form,
+  })
+  return (await response.json() as { success?: boolean }).success === true
+}
+
+type SignedPublicIngressPath = '/api/recommendations' | '/places/search'
+
+async function forwardSignedPublicIngress(
+  path: SignedPublicIngressPath,
+  request: Request,
+  env: Env,
+) {
+  if (!env.CONVEX_HTTP_URL) return json({ message: 'This request is unavailable.' }, 503)
+  const rawBody = await request.text()
+  if (new TextEncoder().encode(rawBody).byteLength > 16_384) {
+    return json({ message: 'This request is too large.' }, 413)
+  }
+  let input: Record<string, unknown>
+  try {
+    const parsed = JSON.parse(rawBody) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid input')
+    input = parsed as Record<string, unknown>
+  } catch {
+    return json({ message: 'Check the form and try again.' }, 400)
+  }
+
+  // Place type-ahead remains frictionless. The eventual submission must pass
+  // Turnstile, and both routes remain edge-signed and independently limited.
+  if (path === '/api/recommendations' && !await turnstilePasses(input, request, env)) {
+    return json({ message: 'Please complete the verification and try again.' }, 400)
+  }
+  const isDevelopment = env.VAZHI_ENVIRONMENT === 'development'
+  if ((!env.EDGE_INGRESS_SIGNING_SECRET || !env.RATE_LIMIT_SALT) && !isDevelopment) {
+    return json({ message: 'This request is unavailable.' }, 503)
+  }
+
+  const headers = new Headers({ 'content-type': 'application/json' })
+  if (env.EDGE_INGRESS_SIGNING_SECRET) {
+    headers.set(
+      'x-vazhi-edge-signature',
+      await edgeIngressSignature(rawBody, env.EDGE_INGRESS_SIGNING_SECRET),
+    )
+  }
+  if (env.RATE_LIMIT_SALT) {
+    headers.set(
+      'x-vazhi-rate-key',
+      await opaqueRateLimitKey(request.headers.get('cf-connecting-ip'), env.RATE_LIMIT_SALT),
+    )
+  }
+  const origin = env.CONVEX_HTTP_URL.replace(/\/$/, '')
+  const response = await fetch(`${origin}${path}`, { method: 'POST', headers, body: rawBody })
+  return new Response(response.body, {
+    status: response.status,
+    headers: {
+      'content-type': response.headers.get('content-type') ?? 'application/json',
+      'cache-control': 'no-store',
+    },
+  })
 }
 
 async function requestMetadata(url: URL, env: Env) {
@@ -31,6 +117,12 @@ async function requestMetadata(url: URL, env: Env) {
 const worker = {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url)
+    if (request.method === 'POST' && url.pathname === '/api/recommendations') {
+      return forwardSignedPublicIngress('/api/recommendations', request, env)
+    }
+    if (request.method === 'POST' && url.pathname === '/places/search') {
+      return forwardSignedPublicIngress('/places/search', request, env)
+    }
     if (url.pathname === '/download' && request.method === 'GET') {
       const userAgent = request.headers.get('user-agent') ?? ''
       if (/iPhone|iPad|iPod/i.test(userAgent) && env.IOS_APP_STORE_URL?.startsWith('https://')) {

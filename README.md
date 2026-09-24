@@ -16,8 +16,9 @@ npm run dev
 
 ## Security boundary
 
-- Browser code receives only `VITE_*` public origins.
-- Google Places, Turnstile verification, Better Auth, and rate-limit salts are server-only Convex environment variables.
+- Browser code receives only public `VITE_*` configuration: the Convex site URL and Turnstile site key.
+- Cloudflare verifies Turnstile, derives an opaque rate key, and signs public writes/searches before forwarding them to Convex.
+- Google Places and Better Auth secrets remain in Convex; Turnstile, ingress-signing, and rate-limit secrets remain in platform secret stores as described in `.env.example`.
 - Public requests never reveal private Vazhi Moments, media, transcripts, or exact owner locations.
 
 The prior experiment is preserved locally in `legacy-reference/` and intentionally excluded from Git.

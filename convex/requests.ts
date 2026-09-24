@@ -27,6 +27,12 @@ const rateLimiter = new RateLimiter(components.rateLimiter, {
     period: HOUR,
     capacity: 3,
   },
+  publicPlaceSearch: {
+    kind: 'token bucket',
+    rate: 60,
+    period: HOUR,
+    capacity: 12,
+  },
 })
 
 async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
@@ -209,6 +215,28 @@ export const submitPublic = internalMutation({
     await ctx.db.patch(request._id, { recommendationCount: request.recommendationCount + 1, pendingRecommendationCount: request.pendingRecommendationCount + 1 })
     if (journey) await ctx.db.patch(journey._id, { recommendationCount: journey.recommendationCount + 1, pendingRecommendationCount: journey.pendingRecommendationCount + 1, updatedAt: Date.now() })
     return null
+  },
+})
+
+/**
+ * Bind type-ahead to an open request and derive its destination server-side.
+ * A caller cannot choose a cheaper rate bucket or search against an arbitrary
+ * destination through the public endpoint.
+ */
+export const preparePublicPlaceSearch = internalMutation({
+  args: { slug: v.string(), rateLimitKey: v.string() },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.query('askRequests')
+      .withIndex('by_slug', (q) => q.eq('slug', args.slug))
+      .unique()
+    if (!request || request.status !== 'open') {
+      throw new ConvexError('This request is unavailable.')
+    }
+    const { ok } = await rateLimiter.limit(ctx, 'publicPlaceSearch', {
+      key: `${request._id}:${args.rateLimitKey}`,
+    })
+    if (!ok) throw new ConvexError('Please try again later.')
+    return { destination: request.destination }
   },
 })
 
