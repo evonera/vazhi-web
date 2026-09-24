@@ -20,28 +20,34 @@ const place = v.object({
 export default defineSchema({
   ...betterAuthTables,
   journeys: defineTable({
-    ownerTokenIdentifier: v.string(),
+    ownerAuthUserId: v.string(),
     localID: v.string(),
     title: v.string(),
     destination: v.string(),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),
+    askRequestCount: v.number(),
+    openAskRequestCount: v.number(),
+    recommendationCount: v.number(),
+    pendingRecommendationCount: v.number(),
     updatedAt: v.number(),
-  }).index('by_ownerTokenIdentifier_and_localID', ['ownerTokenIdentifier', 'localID']),
+  }).index('by_ownerAuthUserId_and_localID', ['ownerAuthUserId', 'localID']),
 
   askRequests: defineTable({
-    ownerTokenIdentifier: v.string(),
+    ownerAuthUserId: v.string(),
     journeyId: v.id('journeys'),
     slug: v.string(),
     prompt: v.string(),
     destination: v.string(),
     journeyTitle: v.optional(v.string()),
     status: v.union(v.literal('open'), v.literal('closed')),
+    recommendationCount: v.number(),
+    pendingRecommendationCount: v.number(),
     createdAt: v.number(),
     closedAt: v.optional(v.number()),
   })
     .index('by_slug', ['slug'])
-    .index('by_ownerTokenIdentifier_and_createdAt', ['ownerTokenIdentifier', 'createdAt'])
+    .index('by_ownerAuthUserId_and_createdAt', ['ownerAuthUserId', 'createdAt'])
     .index('by_journeyId_and_createdAt', ['journeyId', 'createdAt']),
 
   recommendations: defineTable({
@@ -60,7 +66,7 @@ export default defineSchema({
     .index('by_askRequestId_and_status_and_submittedAt', ['askRequestId', 'status', 'submittedAt']),
 
   paths: defineTable({
-    ownerTokenIdentifier: v.string(),
+    ownerAuthUserId: v.string(),
     journeyId: v.id('journeys'),
     title: v.string(),
     status: v.literal('draft'),
@@ -75,4 +81,67 @@ export default defineSchema({
     place,
     notes: v.string(),
   }).index('by_pathId_and_orderIndex', ['pathId', 'orderIndex']),
+
+  syncedOutboxJobs: defineTable({
+    ownerAuthUserId: v.string(),
+    jobId: v.string(),
+    actionType: v.string(),
+    completedAt: v.number(),
+  }).index('by_ownerAuthUserId_and_jobId', ['ownerAuthUserId', 'jobId']),
+
+  // Cloud records mirror selected private journal metadata. Media files never
+  // travel through this table: their local paths are intentionally absent.
+  syncedJourneys: defineTable({
+    ownerAuthUserId: v.string(),
+    localJourneyId: v.string(),
+    title: v.string(),
+    summaryText: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+    // Optional for safe rollout to an already-running dev deployment. New
+    // snapshots always persist their source version and the outbox tie-breaker.
+    lastSyncJobCreatedAt: v.optional(v.string()),
+  }).index('by_ownerAuthUserId_and_localJourneyId', ['ownerAuthUserId', 'localJourneyId']),
+
+  syncedMoments: defineTable({
+    ownerAuthUserId: v.string(),
+    localMomentId: v.string(),
+    localJourneyId: v.string(),
+    capturedAt: v.string(),
+    note: v.string(),
+    syncState: v.string(),
+    latitude: v.optional(v.number()),
+    longitude: v.optional(v.number()),
+    placeName: v.optional(v.string()),
+    locality: v.optional(v.string()),
+    country: v.optional(v.string()),
+    placeSource: v.optional(v.string()),
+    placeProviderID: v.optional(v.string()),
+    formattedAddress: v.optional(v.string()),
+    placePrimaryType: v.optional(v.string()),
+    assetKinds: v.array(v.string()),
+    updatedAt: v.number(),
+    sourceUpdatedAt: v.optional(v.string()),
+    lastSyncJobCreatedAt: v.optional(v.string()),
+  }).index('by_ownerAuthUserId_and_localMomentId', ['ownerAuthUserId', 'localMomentId']),
+
+  // Profiles are opt-in. No Journey, Moment, email, Apple subject, or billing
+  // metadata is ever a public profile field.
+  profiles: defineTable({
+    ownerAuthUserId: v.string(),
+    handle: v.optional(v.string()),
+    displayName: v.optional(v.string()),
+    bio: v.optional(v.string()),
+    isPublic: v.boolean(),
+    updatedAt: v.number(),
+  })
+    .index('by_ownerAuthUserId', ['ownerAuthUserId'])
+    .index('by_handle', ['handle']),
+
+  profileHandleAliases: defineTable({
+    ownerAuthUserId: v.string(),
+    handle: v.string(),
+    createdAt: v.number(),
+  }).index('by_handle', ['handle']),
+
 })
