@@ -45,3 +45,28 @@ test('campaign copy and app previews stay separated across responsive breakpoint
     expect(gap, `horizontal copy-to-preview gap at ${width}px`).toBeGreaterThanOrEqual(0)
   }
 })
+
+test('prototype-shaped slugs are never treated as built-in demos', async ({ page }) => {
+  let requestCount = 0
+  await page.route('**/api/ask?slug=**', async (route) => {
+    requestCount += 1
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'Unavailable' }) })
+  })
+
+  for (const slug of ['constructor', 'toString', '__proto__']) {
+    await page.goto(`/ask/${slug}`)
+    await expect(page.getByRole('heading', { name: 'This request is unavailable.' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Add to their path/i })).toHaveCount(0)
+  }
+  // React development mode can replay effects; every prototype-shaped slug
+  // must still leave the demo allowlist and attempt the public API.
+  expect(requestCount).toBeGreaterThanOrEqual(3)
+})
+
+test('campaign has no horizontal overflow at required handoff widths', async ({ page }) => {
+  for (const width of [320, 390, 640, 841, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/')
+    await expect(page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).resolves.toBe(true)
+  }
+})

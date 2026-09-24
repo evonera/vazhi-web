@@ -13,12 +13,47 @@ export interface Env {
   TURNSTILE_SECRET_KEY?: string
   VAZHI_ENVIRONMENT?: string
   IOS_APP_STORE_URL?: string
+  PUBLIC_WEB_ORIGIN?: string
 }
 
 type PublicAsk = { slug: string; prompt: string; destination: string }
+type PublicProfile = { handle: string; displayName?: string; bio?: string }
+type PublicGuide = {
+  handle: string
+  title: string
+  destination?: string
+  subtitle?: string
+  disclaimer?: string
+  versionNumber: number
+}
 
 function escapeHTML(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character)
+}
+
+function metadataText(value: unknown, fallback: string, maximumLength: number) {
+  if (typeof value !== 'string') return fallback
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+  return cleaned ? cleaned.slice(0, maximumLength) : fallback
+}
+
+function publicOrigin(env: Env) {
+  try {
+    const configured = env.PUBLIC_WEB_ORIGIN ? new URL(env.PUBLIC_WEB_ORIGIN) : undefined
+    return configured?.protocol === 'https:' ? configured.origin : 'https://vazhi.app'
+  } catch {
+    return 'https://vazhi.app'
+  }
+}
+
+function metadata(input: { title: string; description: string; canonicalURL: string; imageURL?: string }) {
+  const title = escapeHTML(metadataText(input.title, 'Vazhi', 160))
+  const description = escapeHTML(metadataText(input.description, 'Capture places. Ask your people. Make the path.', 300))
+  const canonicalURL = escapeHTML(input.canonicalURL)
+  const image = input.imageURL
+    ? `<meta property="og:image" content="${escapeHTML(input.imageURL)}"><meta property="og:image:width" content="1080"><meta property="og:image:height" content="1920">`
+    : ''
+  return `<title>${title}</title><meta name="description" content="${description}"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:type" content="website"><meta property="og:url" content="${canonicalURL}">${image}<meta name="twitter:card" content="${input.imageURL ? 'summary_large_image' : 'summary'}"><link rel="canonical" href="${canonicalURL}">`
 }
 
 function json(body: unknown, status = 200) {
@@ -101,17 +136,78 @@ async function forwardSignedPublicIngress(
 }
 
 async function requestMetadata(url: URL, env: Env) {
-  const match = url.pathname.match(/^\/ask\/([^/]+)$/)
-  if (!match || !env.CONVEX_HTTP_URL) return ''
+  const origin = publicOrigin(env)
+  if (url.pathname === '/download') {
+    return metadata({
+      title: 'Download Vazhi for iPhone',
+      description: 'Capture places, ask your people, and make a path with Vazhi. Android is coming soon.',
+      canonicalURL: `${origin}/download`,
+    })
+  }
+
+  const askMatch = url.pathname.match(/^\/ask\/([^/]+)$/)
+  const profileMatch = url.pathname.match(/^\/@([a-z0-9_]{3,24})\/?$/i)
+  const guideMatch = url.pathname.match(/^\/@([a-z0-9_]{3,24})\/([a-z0-9-]{3,64})\/?$/i)
+  const convexOrigin = env.CONVEX_HTTP_URL?.replace(/\/$/, '')
+  if (!convexOrigin || (!askMatch && !profileMatch && !guideMatch)) return ''
+
   try {
-    const response = await fetch(`${env.CONVEX_HTTP_URL}/api/ask?slug=${encodeURIComponent(match[1])}`)
+    if (askMatch) {
+      const slug = askMatch[1]
+      const response = await fetch(`${convexOrigin}/api/ask?slug=${encodeURIComponent(slug)}`)
+      if (!response.ok) return ''
+      const ask = await response.json() as PublicAsk
+      return metadata({
+        title: `${metadataText(ask.destination, 'Travel', 80)} · Ask the Way | Vazhi`,
+        description: metadataText(ask.prompt, 'Recommend a place worth their time.', 200),
+        canonicalURL: `${origin}/ask/${encodeURIComponent(slug)}`,
+        imageURL: `${origin}/og/ask/${encodeURIComponent(slug)}`,
+      })
+    }
+
+    if (guideMatch) {
+      const [, handle, slug] = guideMatch
+      const requestedVersion = url.searchParams.get('version')
+      let versionQuery = ''
+      let canonicalQuery = ''
+      if (requestedVersion !== null) {
+        const versionNumber = Number(requestedVersion)
+        if (!Number.isSafeInteger(versionNumber) || versionNumber <= 0) return ''
+        versionQuery = `&version=${encodeURIComponent(String(versionNumber))}`
+        canonicalQuery = `?version=${encodeURIComponent(String(versionNumber))}`
+      }
+      const response = await fetch(`${convexOrigin}/api/listing?handle=${encodeURIComponent(handle)}&slug=${encodeURIComponent(slug)}${versionQuery}`)
+      if (!response.ok) return ''
+      const guide = await response.json() as PublicGuide
+      const title = metadataText(guide.title, 'Vazhi guide', 120)
+      const safeHandle = metadataText(guide.handle, handle, 24)
+      const versionLabel = requestedVersion === null ? '' : ` · version ${guide.versionNumber}`
+      return metadata({
+        title: `${title}${versionLabel} · @${safeHandle} | Vazhi`,
+        description: metadataText(guide.subtitle, metadataText(guide.disclaimer, metadataText(guide.destination, 'A versioned Vazhi guide.', 120), 220), 220),
+        canonicalURL: `${origin}/@${encodeURIComponent(handle)}/${encodeURIComponent(slug)}${canonicalQuery}`,
+      })
+    }
+
+    const handle = profileMatch![1]
+    const response = await fetch(`${convexOrigin}/api/profile?handle=${encodeURIComponent(handle)}`)
     if (!response.ok) return ''
-    const ask = await response.json() as PublicAsk
-    const title = escapeHTML(`${ask.destination} · Ask the Way | Vazhi`)
-    const description = escapeHTML(ask.prompt)
-    const image = `${url.origin}/og/ask/${encodeURIComponent(ask.slug)}`
-    return `<title>${title}</title><meta name="description" content="${description}"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:type" content="website"><meta property="og:image" content="${image}"><meta property="og:image:width" content="1080"><meta property="og:image:height" content="1920"><meta name="twitter:card" content="summary_large_image">`
+    const profile = await response.json() as PublicProfile
+    const safeHandle = metadataText(profile.handle, handle, 24)
+    const displayName = metadataText(profile.displayName, `@${safeHandle}`, 80)
+    return metadata({
+      title: `${displayName} · @${safeHandle} | Vazhi`,
+      description: metadataText(profile.bio, 'Owner-approved, versioned travel guides on Vazhi.', 220),
+      canonicalURL: `${origin}/@${encodeURIComponent(handle)}`,
+    })
   } catch { return '' }
+}
+
+function withOGCache(response: Response) {
+  if (!response.ok) return response
+  const headers = new Headers(response.headers)
+  headers.set('cache-control', 'public, max-age=300, stale-while-revalidate=3600')
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 
 const worker = {
@@ -135,15 +231,33 @@ const worker = {
     if (url.pathname.match(/^\/og\/ask\/[^/]+$/)) {
       const slug = url.pathname.split('/').at(-1) ?? ''
       if (!env.CONVEX_HTTP_URL) return new Response('Not configured', { status: 503 })
-      return fetch(`${env.CONVEX_HTTP_URL}/og/ask?slug=${encodeURIComponent(slug)}`)
+      const response = await fetch(`${env.CONVEX_HTTP_URL.replace(/\/$/, '')}/og/ask?slug=${encodeURIComponent(slug)}`)
+      return withOGCache(response)
     }
+
+    const wantsHTML = request.method === 'GET' && request.headers.get('accept')?.includes('text/html')
+    const supportsDynamicMetadata = url.pathname === '/download'
+      || /^\/ask\/[^/]+$/.test(url.pathname)
+      || /^\/@[a-z0-9_]{3,24}(?:\/[a-z0-9-]{3,64})?\/?$/i.test(url.pathname)
+    if (wantsHTML && supportsDynamicMetadata) {
+      const dynamicMetadata = await requestMetadata(url, env)
+      if (dynamicMetadata) {
+        const index = await env.ASSETS.fetch(new Request(new URL('/index.html', url)))
+        const headers = new Headers(index.headers)
+        headers.set('content-type', 'text/html; charset=utf-8')
+        return new Response((await index.text()).replace(/<!-- vazhi:meta:start -->[\s\S]*?<!-- vazhi:meta:end -->/, dynamicMetadata), {
+          status: index.status,
+          statusText: index.statusText,
+          headers,
+        })
+      }
+    }
+
     const asset = await env.ASSETS.fetch(request)
     if (asset.status !== 404) return asset
-    if (request.method !== 'GET' || !request.headers.get('accept')?.includes('text/html')) return asset
+    if (!wantsHTML) return asset
     const index = await env.ASSETS.fetch(new Request(new URL('/index.html', url)))
-    const meta = await requestMetadata(url, env)
-    if (!meta) return index
-    return new Response((await index.text()).replace('<!-- vazhi:meta -->', meta), { headers: { 'content-type': 'text/html; charset=utf-8' } })
+    return index
   },
 }
 
