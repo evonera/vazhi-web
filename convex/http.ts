@@ -157,16 +157,6 @@ http.route({ path: '/api/owner/recommendations', method: 'PATCH', handler: httpA
   }
 }) })
 
-http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (ctx, request) => {
-  const input = await request.json() as { query?: string; destination?: string }
-  try {
-    const result = await ctx.runAction(internal.places.search, { query: input.query ?? '', destination: input.destination ?? '' })
-    return json(result)
-  } catch {
-    return json({ message: 'Place search is temporarily unavailable.' }, 503)
-  }
-}) })
-
 http.route({ path: '/api/recommendations', method: 'OPTIONS', handler: httpAction(async () => new Response(null, { headers: { 'access-control-allow-origin': process.env.SITE_URL ?? '', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type, authorization', 'vary': 'Origin' } })) })
 
 export default http
