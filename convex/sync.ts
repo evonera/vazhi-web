@@ -1,7 +1,7 @@
 import { v } from 'convex/values'
 import { mutation } from './_generated/server'
 import { authComponent } from './betterAuth/auth'
-import { getOutboxJobValidationError } from './syncValidation'
+import { getOutboxJobValidationError, isSnapshotNewer } from './syncValidation'
 
 const journey = v.object({
   id: v.string(), title: v.string(), summaryText: v.string(),
@@ -58,13 +58,21 @@ export const pushOutboxBatch = mutation({
         .withIndex('by_ownerAuthUserId_and_localJourneyId', (q) => q
           .eq('ownerAuthUserId', ownerAuthUserId).eq('localJourneyId', journeySnapshot.id))
         .unique()
-      const journeyRecord = {
-        ownerAuthUserId, localJourneyId: journeySnapshot.id, title: journeySnapshot.title,
-        summaryText: journeySnapshot.summaryText, createdAt: journeySnapshot.createdAt,
-        updatedAt: journeySnapshot.updatedAt,
+      const shouldApplyJourney = !currentJourney || isSnapshotNewer(
+        journeySnapshot.updatedAt,
+        item.createdAt,
+        currentJourney.updatedAt,
+        currentJourney.lastSyncJobCreatedAt,
+      )
+      if (shouldApplyJourney) {
+        const journeyRecord = {
+          ownerAuthUserId, localJourneyId: journeySnapshot.id, title: journeySnapshot.title,
+          summaryText: journeySnapshot.summaryText, createdAt: journeySnapshot.createdAt,
+          updatedAt: journeySnapshot.updatedAt, lastSyncJobCreatedAt: item.createdAt,
+        }
+        if (currentJourney) await ctx.db.patch(currentJourney._id, journeyRecord)
+        else await ctx.db.insert('syncedJourneys', journeyRecord)
       }
-      if (currentJourney) await ctx.db.patch(currentJourney._id, journeyRecord)
-      else await ctx.db.insert('syncedJourneys', journeyRecord)
 
       if (item.actionType === 'createMoment') {
         const validMoment = item.moment!
@@ -72,16 +80,25 @@ export const pushOutboxBatch = mutation({
           .withIndex('by_ownerAuthUserId_and_localMomentId', (q) => q
             .eq('ownerAuthUserId', ownerAuthUserId).eq('localMomentId', validMoment.id))
           .unique()
-        const momentRecord = {
-          ownerAuthUserId, localMomentId: validMoment.id, localJourneyId: validMoment.journeyId,
-          capturedAt: validMoment.capturedAt, note: validMoment.note, syncState: validMoment.syncState,
-          latitude: validMoment.latitude, longitude: validMoment.longitude, placeName: validMoment.placeName,
-          locality: validMoment.locality, country: validMoment.country, placeSource: validMoment.placeSource,
-          placeProviderID: validMoment.placeProviderID, formattedAddress: validMoment.formattedAddress,
-          placePrimaryType: validMoment.placePrimaryType, assetKinds: validMoment.assetKinds, updatedAt: Date.now(),
+        const shouldApplyMoment = !currentMoment || isSnapshotNewer(
+          journeySnapshot.updatedAt,
+          item.createdAt,
+          currentMoment.sourceUpdatedAt,
+          currentMoment.lastSyncJobCreatedAt,
+        )
+        if (shouldApplyMoment) {
+          const momentRecord = {
+            ownerAuthUserId, localMomentId: validMoment.id, localJourneyId: validMoment.journeyId,
+            capturedAt: validMoment.capturedAt, note: validMoment.note, syncState: validMoment.syncState,
+            latitude: validMoment.latitude, longitude: validMoment.longitude, placeName: validMoment.placeName,
+            locality: validMoment.locality, country: validMoment.country, placeSource: validMoment.placeSource,
+            placeProviderID: validMoment.placeProviderID, formattedAddress: validMoment.formattedAddress,
+            placePrimaryType: validMoment.placePrimaryType, assetKinds: validMoment.assetKinds,
+            updatedAt: Date.now(), sourceUpdatedAt: journeySnapshot.updatedAt, lastSyncJobCreatedAt: item.createdAt,
+          }
+          if (currentMoment) await ctx.db.patch(currentMoment._id, momentRecord)
+          else await ctx.db.insert('syncedMoments', momentRecord)
         }
-        if (currentMoment) await ctx.db.patch(currentMoment._id, momentRecord)
-        else await ctx.db.insert('syncedMoments', momentRecord)
       }
 
       await ctx.db.insert('syncedOutboxJobs', {

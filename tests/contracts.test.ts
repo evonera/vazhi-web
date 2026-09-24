@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isSafeReferenceURL } from '../src/lib/contracts'
 import { buildPlaceAutocompleteInput, buildPlaceSearchQuery, hasValidCoordinates } from '../convex/mapsValidation'
-import { getOutboxJobValidationError } from '../convex/syncValidation'
+import { getOutboxJobValidationError, isSnapshotNewer } from '../convex/syncValidation'
 
 describe('reference URL validation', () => {
   it('allows HTTPS references only', () => {
@@ -28,23 +28,59 @@ describe('Google Maps input validation', () => {
 })
 
 describe('outbox job preflight validation', () => {
+  const validJob = {
+    jobId: 'job-1',
+    createdAt: '2026-09-24T00:00:00.000Z',
+    actionType: 'createMoment' as const,
+    journeyId: 'journey-a',
+    journey: { id: 'journey-a', updatedAt: '2026-09-24T00:00:00.000Z' },
+    moment: { id: 'moment-a', journeyId: 'journey-a' },
+  }
+
   it('rejects missing Journey snapshots before any sync mutation writes', () => {
-    expect(getOutboxJobValidationError({ actionType: 'upsertJourney' })).toContain('Journey snapshot')
+    expect(getOutboxJobValidationError({ ...validJob, journey: undefined })).toContain('Journey snapshot')
+  })
+
+  it('rejects empty job, Journey, and Moment identifiers', () => {
+    expect(getOutboxJobValidationError({ ...validJob, jobId: '  ' })).toContain('job ID')
+    expect(getOutboxJobValidationError({ ...validJob, journey: { ...validJob.journey, id: '' } })).toContain('Journey ID')
+    expect(getOutboxJobValidationError({ ...validJob, moment: { ...validJob.moment, id: '  ' } })).toContain('Moment must belong')
+  })
+
+  it('rejects inconsistent redundant Journey IDs and missing Moment snapshots', () => {
+    expect(getOutboxJobValidationError({ ...validJob, journeyId: 'journey-b' })).toContain('Journey ID must match')
+    expect(getOutboxJobValidationError({ ...validJob, moment: undefined })).toContain('Moment snapshot is required')
   })
 
   it('rejects a Moment that references a different Journey', () => {
     expect(getOutboxJobValidationError({
-      actionType: 'createMoment',
-      journey: { id: 'journey-a' },
-      moment: { journeyId: 'journey-b' },
+      ...validJob,
+      moment: { id: 'moment-a', journeyId: 'journey-b' },
     })).toContain('Moment must belong')
   })
 
   it('accepts complete Journey and Moment snapshots', () => {
-    expect(getOutboxJobValidationError({
-      actionType: 'createMoment',
-      journey: { id: 'journey-a' },
-      moment: { journeyId: 'journey-a' },
-    })).toBeNull()
+    expect(getOutboxJobValidationError(validJob)).toBeNull()
+  })
+})
+
+describe('outbox source snapshot ordering', () => {
+  it('does not allow an older source snapshot to replace newer synced data', () => {
+    expect(isSnapshotNewer(
+      '2026-09-24T00:00:00.000Z', '2026-09-24T00:02:00.000Z',
+      '2026-09-24T00:01:00.000Z', '2026-09-24T00:01:00.000Z',
+    )).toBe(false)
+  })
+
+  it('uses outbox creation time to deterministically break equal source-version ties', () => {
+    expect(isSnapshotNewer(
+      '2026-09-24T00:00:00.000Z', '2026-09-24T00:02:00.000Z',
+      '2026-09-24T00:00:00.000Z', '2026-09-24T00:01:00.000Z',
+    )).toBe(true)
+  })
+
+  it('accepts the first snapshot and rejects malformed timestamps', () => {
+    expect(isSnapshotNewer('2026-09-24T00:00:00.000Z', '2026-09-24T00:00:00.000Z')).toBe(true)
+    expect(isSnapshotNewer('invalid', '2026-09-24T00:00:00.000Z')).toBe(false)
   })
 })

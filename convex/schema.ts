@@ -98,6 +98,9 @@ export default defineSchema({
     summaryText: v.string(),
     createdAt: v.string(),
     updatedAt: v.string(),
+    // Optional for safe rollout to an already-running dev deployment. New
+    // snapshots always persist their source version and the outbox tie-breaker.
+    lastSyncJobCreatedAt: v.optional(v.string()),
   }).index('by_ownerAuthUserId_and_localJourneyId', ['ownerAuthUserId', 'localJourneyId']),
 
   syncedMoments: defineTable({
@@ -118,6 +121,8 @@ export default defineSchema({
     placePrimaryType: v.optional(v.string()),
     assetKinds: v.array(v.string()),
     updatedAt: v.number(),
+    sourceUpdatedAt: v.optional(v.string()),
+    lastSyncJobCreatedAt: v.optional(v.string()),
   }).index('by_ownerAuthUserId_and_localMomentId', ['ownerAuthUserId', 'localMomentId']),
 
   // Profiles are opt-in. No Journey, Moment, email, Apple subject, or billing
