@@ -183,4 +183,77 @@ export default defineSchema({
     createdAt: v.number(),
   }).index('by_handle', ['handle']),
 
+  // Public guides are an explicit, immutable projection. They never point at
+  // live Journeys, Moments, media, transcripts, or source coordinates.
+  publicItineraryListings: defineTable({
+    ownerAuthUserId: v.string(),
+    localPathID: v.string(),
+    slug: v.string(),
+    visibility: v.union(v.literal('public'), v.literal('unlisted')),
+    status: v.union(v.literal('published'), v.literal('archived'), v.literal('takedown')),
+    currentVersionId: v.optional(v.id('itineraryVersions')),
+    // The report currently keeping this listing down; unrelated moderation
+    // decisions must not make its restore action disappear from the queue.
+    activeTakedownReportId: v.optional(v.id('reports')),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_slug', ['slug'])
+    .index('by_status_and_updatedAt', ['status', 'updatedAt'])
+    .index('by_ownerAuthUserId_and_localPathID', ['ownerAuthUserId', 'localPathID'])
+    .index('by_ownerAuthUserId_and_status_and_updatedAt', ['ownerAuthUserId', 'status', 'updatedAt'])
+    .index('by_ownerAuthUserId_and_visibility_and_status_and_updatedAt', ['ownerAuthUserId', 'visibility', 'status', 'updatedAt']),
+
+  itineraryVersions: defineTable({
+    listingId: v.id('publicItineraryListings'),
+    versionNumber: v.number(),
+    title: v.string(),
+    destination: v.string(),
+    subtitle: v.string(),
+    disclaimer: v.string(),
+    approximateLocations: v.boolean(),
+    stops: v.array(v.object({
+      orderIndex: v.number(),
+      title: v.string(),
+      notes: v.string(),
+      placeName: v.optional(v.string()),
+      locality: v.optional(v.string()),
+      latitude: v.optional(v.number()),
+      longitude: v.optional(v.number()),
+      isApproximateLocation: v.boolean(),
+    })),
+    createdAt: v.number(),
+  }).index('by_listingId_and_versionNumber', ['listingId', 'versionNumber']),
+
+  reports: defineTable({
+    targetType: v.literal('listing'),
+    listingId: v.optional(v.id('publicItineraryListings')),
+    listingSlug: v.string(),
+    // A salted one-way edge bucket, never a raw IP address. It deduplicates
+    // repeated reports for one guide without becoming product identity data.
+    reportFingerprint: v.string(),
+    reason: v.string(),
+    detail: v.optional(v.string()),
+    status: v.union(v.literal('open'), v.literal('reviewed'), v.literal('dismissed')),
+    createdAt: v.number(),
+  })
+    .index('by_listingId_and_createdAt', ['listingId', 'createdAt'])
+    .index('by_listingId_and_reportFingerprint', ['listingId', 'reportFingerprint'])
+    .index('by_listingId_and_status_and_reportFingerprint', ['listingId', 'status', 'reportFingerprint'])
+    .index('by_status_and_createdAt', ['status', 'createdAt']),
+
+  // Moderation decisions are append-only audit records; the shared dashboard
+  // credential is never written to product data.
+  moderationActions: defineTable({
+    listingId: v.optional(v.id('publicItineraryListings')),
+    reportId: v.id('reports'),
+    action: v.union(v.literal('dismiss'), v.literal('takedown'), v.literal('restore')),
+    previousListingStatus: v.optional(v.union(v.literal('published'), v.literal('archived'), v.literal('takedown'))),
+    note: v.optional(v.string()),
+    actor: v.literal('moderation_api'),
+    createdAt: v.number(),
+  })
+    .index('by_reportId_and_createdAt', ['reportId', 'createdAt'])
+    .index('by_listingId_and_createdAt', ['listingId', 'createdAt']),
+
 })

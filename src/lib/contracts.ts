@@ -41,6 +41,46 @@ export type RecommendationSubmission = {
 
 export type PlaceSearchResult = Place
 
+export type PublicListingSummary = {
+  slug: string
+  title: string
+  destination: string
+  subtitle: string
+  stopCount: number
+  updatedAt: number
+}
+
+export type PublicProfile = {
+  handle: string
+  displayName?: string
+  bio?: string
+  listings: PublicListingSummary[]
+}
+
+export type PublicListing = {
+  handle: string
+  displayName?: string
+  slug: string
+  visibility: 'public' | 'unlisted'
+  versionNumber: number
+  title: string
+  destination: string
+  subtitle: string
+  disclaimer: string
+  approximateLocations: boolean
+  publishedAt: number
+  stops: Array<{
+    orderIndex: number
+    title: string
+    notes: string
+    placeName?: string
+    locality?: string
+    latitude?: number
+    longitude?: number
+    isApproximateLocation: boolean
+  }>
+}
+
 export const categoryLabel: Record<RecommendationCategory, string> = {
   food: 'Food',
   hidden_spot: 'Hidden spot',

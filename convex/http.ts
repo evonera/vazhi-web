@@ -2,6 +2,9 @@ import { httpRouter } from 'convex/server'
 import { httpAction } from './_generated/server'
 import { internal } from './_generated/api'
 import { authComponent, createAuth } from './betterAuth/auth'
+import { matchesModeratorToken } from './moderationAuth'
+import { acceptPublicReport } from './publicReportReceipt'
+import { parseModerationPagination } from './moderationPagination'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { parseNativePlaceSearchInput } from '../src/lib/nativePlaceSearch'
@@ -48,6 +51,26 @@ http.route({ path: '/api/ask', method: 'GET', handler: httpAction(async (ctx, re
   const slug = new URL(request.url).searchParams.get('slug') ?? ''
   const result = await ctx.runQuery(internal.requests.getPublicBySlug, { slug })
   return result ? json(result) : json({ message: 'This request is unavailable.' }, 404)
+}) })
+
+http.route({ path: '/api/profile', method: 'GET', handler: httpAction(async (ctx, request) => {
+  const handle = new URL(request.url).searchParams.get('handle') ?? ''
+  const result = await ctx.runQuery(internal.listings.getPublicProfileByHandle, { handle })
+  return result ? json(result) : json({ message: 'This profile is unavailable.' }, 404)
+}) })
+
+http.route({ path: '/api/listing', method: 'GET', handler: httpAction(async (ctx, request) => {
+  const url = new URL(request.url)
+  const requestedVersion = url.searchParams.get('version')
+  const parsedVersion = requestedVersion === null ? undefined : Number(requestedVersion)
+  if (requestedVersion !== null && (!Number.isSafeInteger(parsedVersion) || (parsedVersion ?? 0) <= 0)) {
+    return json({ message: 'This guide version is unavailable.' }, 404)
+  }
+  const result = await ctx.runQuery(internal.listings.getPublicListing, {
+    handle: url.searchParams.get('handle') ?? '', slug: url.searchParams.get('slug') ?? '',
+    versionNumber: parsedVersion,
+  })
+  return result ? json(result) : json({ message: 'This guide is unavailable.' }, 404)
 }) })
 
 // A public, 9:16 story card built solely from the sanitised request projection.
@@ -106,6 +129,56 @@ http.route({ path: '/places/search', method: 'POST', handler: httpAction(async (
   }
 }) })
 
+http.route({ path: '/api/reports', method: 'POST', handler: httpAction(async (ctx, request) => {
+  const rawBody = await request.text()
+  // Reports always return the same receipt so the endpoint cannot be used as
+  // a guide-existence oracle. Only edge-signed bodies reach persistence.
+  if (!await hasVerifiedPublicIngress(request, rawBody)) {
+    return json({ accepted: true })
+  }
+  const reportRequest = new Request(request.url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: rawBody,
+  })
+  const receipt = await acceptPublicReport(reportRequest, async (input) => {
+    await ctx.runMutation(internal.listings.reportPublicListing, {
+      listingSlug: typeof input.listingSlug === 'string' ? input.listingSlug : '',
+      reason: typeof input.reason === 'string' ? input.reason : '',
+      detail: typeof input.detail === 'string' ? input.detail : undefined,
+      rateLimitKey: await requestBucket(request),
+    })
+  })
+  return json(receipt)
+}) })
+
+// The moderation API is intentionally not part of the browser app. Operators
+// call it from a trusted terminal/workflow using a server-only credential.
+http.route({ path: '/api/admin/reports', method: 'GET', handler: httpAction(async (ctx, request) => {
+  if (!matchesModeratorToken(request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? null, process.env.MODERATION_API_TOKEN)) {
+    return json({ message: 'Not found.' }, 404)
+  }
+  const pagination = parseModerationPagination(new URL(request.url))
+  return json(await ctx.runQuery(internal.listings.listModerationQueue, pagination))
+}) })
+
+http.route({ path: '/api/admin/reports', method: 'PATCH', handler: httpAction(async (ctx, request) => {
+  if (!matchesModeratorToken(request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? null, process.env.MODERATION_API_TOKEN)) {
+    return json({ message: 'Not found.' }, 404)
+  }
+  try {
+    const input = await request.json() as Record<string, unknown>
+    await ctx.runMutation(internal.listings.resolveModerationReport, {
+      reportId: typeof input.reportId === 'string' ? input.reportId : '',
+      action: input.action,
+      note: typeof input.note === 'string' ? input.note : undefined,
+    } as never)
+    return json({ updated: true })
+  } catch {
+    return json({ message: 'That report could not be updated.' }, 400)
+  }
+}) })
+
 http.route({ path: '/api/owner/ask-requests', method: 'POST', handler: httpAction(async (ctx, request) => {
   try {
     const input = await request.json() as Record<string, unknown>
@@ -121,6 +194,74 @@ http.route({ path: '/api/owner/ask-requests', method: 'POST', handler: httpActio
   } catch {
     return json({ message: 'We could not create that request. Check your sign-in and journey details.' }, 400)
   }
+}) })
+
+http.route({ path: '/api/owner/listings', method: 'POST', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const input = await request.json() as Record<string, unknown>
+    const result = await ctx.runMutation(internal.listings.publishForOwner, {
+      ownerAuthUserId,
+      localPathID: typeof input.localPathID === 'string' ? input.localPathID : '',
+      privacyReviewed: input.privacyReviewed === true,
+      visibility: input.visibility,
+      title: typeof input.title === 'string' ? input.title : '',
+      destination: typeof input.destination === 'string' ? input.destination : '',
+      subtitle: typeof input.subtitle === 'string' ? input.subtitle : '',
+      disclaimer: typeof input.disclaimer === 'string' ? input.disclaimer : '',
+      approximateLocations: input.approximateLocations === true,
+      stops: Array.isArray(input.stops) ? input.stops : [],
+    } as never)
+    return json(result, 201)
+  } catch {
+    return json({ message: 'We could not publish that guide. Check your profile and privacy review.' }, 400)
+  }
+}) })
+
+http.route({ path: '/api/owner/listings', method: 'GET', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const localPathID = new URL(request.url).searchParams.get('localPathID') ?? ''
+    const guide = await ctx.runQuery(internal.listings.getOwnerListing, { ownerAuthUserId, localPathID })
+    return json({ guide })
+  } catch {
+    return json({ message: 'Sign in to view this guide.' }, 401)
+  }
+}) })
+
+http.route({ path: '/api/owner/listings', method: 'PATCH', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const input = await request.json() as Record<string, unknown>
+    await ctx.runMutation(internal.listings.archiveForOwner, {
+      ownerAuthUserId, localPathID: typeof input.localPathID === 'string' ? input.localPathID : '',
+    } as never)
+    return json({ updated: true })
+  } catch {
+    return json({ message: 'That guide could not be unpublished.' }, 404)
+  }
+}) })
+
+http.route({ path: '/api/owner/profile', method: 'GET', handler: httpAction(async (ctx) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    return json(await ctx.runQuery(internal.profiles.getForOwner, { ownerAuthUserId }))
+  } catch { return json({ message: 'Sign in to manage your profile.' }, 401) }
+}) })
+
+http.route({ path: '/api/owner/profile', method: 'PUT', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const input = await request.json() as Record<string, unknown>
+    await ctx.runMutation(internal.profiles.saveForOwner, {
+      ownerAuthUserId,
+      handle: typeof input.handle === 'string' ? input.handle : undefined,
+      displayName: typeof input.displayName === 'string' ? input.displayName : undefined,
+      bio: typeof input.bio === 'string' ? input.bio : undefined,
+      isPublic: input.isPublic === true,
+    })
+    return json({ updated: true })
+  } catch { return json({ message: 'We could not save that profile.' }, 400) }
 }) })
 
 http.route({ path: '/api/owner/ask-requests', method: 'GET', handler: httpAction(async (ctx) => {

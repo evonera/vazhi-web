@@ -93,4 +93,34 @@ describe('Cloudflare public ingress', () => {
     expect(response.status).toBe(400)
     expect(forwarded).not.toHaveBeenCalled()
   })
+
+  it('edge-signs public reports without exposing whether a guide exists', async () => {
+    const body = JSON.stringify({ listingSlug: 'penang-walk', reason: 'privacy' })
+    let forwarded: Request | undefined
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      forwarded = new Request(input, init)
+      return new Response(JSON.stringify({ accepted: true }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+
+    const response = await worker.fetch(
+      new Request('https://vazhi.test/api/reports', {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': '203.0.113.42' },
+        body,
+      }),
+      environment({ TURNSTILE_SECRET_KEY: 'turnstile-secret' }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ accepted: true })
+    expect(forwarded?.url).toBe('https://example.convex.site/api/reports')
+    expect(await forwarded?.text()).toBe(body)
+    await expect(verifyEdgeIngressSignature({
+      rawBody: body,
+      signatureHeader: forwarded?.headers.get('x-vazhi-edge-signature') ?? null,
+      signingSecret: 'edge-secret',
+    })).resolves.toBe(true)
+  })
 })

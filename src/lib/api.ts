@@ -1,4 +1,4 @@
-import type { PlaceSearchResult, PublicAskRequest, RecommendationSubmission } from './contracts'
+import type { PlaceSearchResult, PublicAskRequest, PublicListing, PublicProfile, RecommendationSubmission } from './contracts'
 import { convexHTTPURL } from './convexConfig'
 
 const apiOrigin = convexHTTPURL
@@ -29,7 +29,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // Public writes/searches use the same origin so Cloudflare can verify
 // Turnstile, derive an opaque edge rate key, and sign the untouched body.
 async function publicIngress<T>(
-  path: '/api/recommendations' | '/places/search',
+  path: '/api/recommendations' | '/api/reports' | '/places/search',
   init: RequestInit,
 ): Promise<T> {
   const response = await fetch(path, {
@@ -57,6 +57,21 @@ export const publicAskAPI = {
     return publicIngress<{ accepted: true }>('/api/recommendations', {
       method: 'POST',
       body: JSON.stringify({ slug, ...submission }),
+    })
+  },
+}
+
+export const publicGuideAPI = {
+  getProfile(handle: string) {
+    return request<PublicProfile>(`/api/profile?handle=${encodeURIComponent(handle)}`)
+  },
+  getListing(handle: string, slug: string, versionNumber?: number) {
+    const version = versionNumber === undefined ? '' : `&version=${encodeURIComponent(String(versionNumber))}`
+    return request<PublicListing>(`/api/listing?handle=${encodeURIComponent(handle)}&slug=${encodeURIComponent(slug)}${version}`)
+  },
+  reportListing(listingSlug: string, reason: string, detail?: string) {
+    return publicIngress<{ accepted: true }>('/api/reports', {
+      method: 'POST', body: JSON.stringify({ listingSlug, reason, detail }),
     })
   },
 }
