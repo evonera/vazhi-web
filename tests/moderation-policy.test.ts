@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ownerMayTransitionListingStatus, reportHasActiveTakedown } from '../convex/moderationPolicy'
+import { isDuplicateOpenReport, latestTakedownReportId, ownerMayTransitionListingStatus, reportHasActiveTakedown } from '../convex/moderationPolicy'
 import { acceptPublicReport } from '../convex/publicReportReceipt'
 import { parseModerationPagination } from '../convex/moderationPagination'
 
@@ -36,6 +36,22 @@ describe('moderation policy', () => {
       { action: 'restore', previousListingStatus: 'published' },
     ])).toBe(true)
     expect(reportHasActiveTakedown([{ action: 'dismiss' }])).toBe(false)
+  })
+
+  it('lets a reporter submit again after a previous report is resolved', () => {
+    expect(isDuplicateOpenReport('open')).toBe(true)
+    expect(isDuplicateOpenReport('reviewed')).toBe(false)
+    expect(isDuplicateOpenReport('dismissed')).toBe(false)
+    expect(isDuplicateOpenReport(undefined)).toBe(false)
+  })
+
+  it('keeps the active takedown discoverable after an unrelated later dismissal', () => {
+    const actions = [
+      { reportId: 'later-dismissed-report', action: 'dismiss' as const },
+      { reportId: 'active-takedown-report', action: 'takedown' as const },
+    ]
+
+    expect(latestTakedownReportId(actions)).toBe('active-takedown-report')
   })
 
   it('returns the generic receipt when the public report body is malformed', async () => {

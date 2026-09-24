@@ -15,3 +15,15 @@ export function ownerMayTransitionListingStatus(status: ListingStatus | undefine
 export function reportHasActiveTakedown(actionsNewestFirst: ModerationActionSummary[]) {
   return actionsNewestFirst[0]?.action === 'takedown'
 }
+
+/** An unrelated report's dismissal must not shadow an earlier takedown. */
+export function latestTakedownReportId<T extends { action: ModerationActionType; reportId: string }>(
+  listingActionsNewestFirst: T[],
+) {
+  return listingActionsNewestFirst.find((action) => action.action === 'takedown')?.reportId
+}
+
+/** A reporter may retry after a prior report is resolved; only open reports coalesce. */
+export function isDuplicateOpenReport(status: 'open' | 'reviewed' | 'dismissed' | undefined) {
+  return status === 'open'
+}
