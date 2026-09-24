@@ -25,5 +25,5 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => betterAuth({
       appBundleIdentifier: process.env.APPLE_BUNDLE_ID,
     },
   },
-  plugins: [convex({ authConfig, jwks: process.env.BETTER_AUTH_JWKS })],
+  plugins: [convex({ authConfig })],
 } satisfies BetterAuthOptions)

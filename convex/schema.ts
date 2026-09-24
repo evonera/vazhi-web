@@ -75,11 +75,16 @@ export default defineSchema({
 
   paths: defineTable({
     ownerAuthUserId: v.string(),
-    journeyId: v.id('journeys'),
+    journeyId: v.optional(v.id('journeys')),
+    localPathID: v.optional(v.string()),
     title: v.string(),
     status: v.literal('draft'),
     createdAt: v.number(),
-  }).index('by_journeyId_and_createdAt', ['journeyId', 'createdAt']),
+    updatedAt: v.optional(v.number()),
+    routeRevision: v.optional(v.number()),
+  })
+    .index('by_journeyId_and_createdAt', ['journeyId', 'createdAt'])
+    .index('by_ownerAuthUserId_and_localPathID', ['ownerAuthUserId', 'localPathID']),
 
   pathStops: defineTable({
     pathId: v.id('paths'),
@@ -89,6 +94,32 @@ export default defineSchema({
     place,
     notes: v.string(),
   }).index('by_pathId_and_orderIndex', ['pathId', 'orderIndex']),
+
+  // Private routing projections contain no Moment notes, media, transcripts,
+  // Journey metadata, or contributor identity.
+  privateRouteStops: defineTable({
+    pathId: v.id('paths'),
+    ownerAuthUserId: v.string(),
+    localStopID: v.string(),
+    orderIndex: v.number(),
+    provider: v.union(v.literal('google'), v.literal('apple'), v.literal('manual')),
+    providerPlaceID: v.optional(v.string()),
+    latitude: v.optional(v.number()),
+    longitude: v.optional(v.number()),
+  }).index('by_pathId_and_orderIndex', ['pathId', 'orderIndex']),
+
+  routeSnapshots: defineTable({
+    ownerAuthUserId: v.string(),
+    pathId: v.id('paths'),
+    travelMode: v.union(v.literal('DRIVE'), v.literal('WALK'), v.literal('BICYCLE')),
+    routeRevision: v.number(),
+    distanceMeters: v.number(),
+    duration: v.string(),
+    encodedPolyline: v.string(),
+    legs: v.array(v.object({ distanceMeters: v.number(), duration: v.string() })),
+    generatedAt: v.number(),
+    expiresAt: v.number(),
+  }).index('by_ownerAuthUserId_and_pathId_and_travelMode', ['ownerAuthUserId', 'pathId', 'travelMode']),
 
   syncedOutboxJobs: defineTable({
     ownerAuthUserId: v.string(),

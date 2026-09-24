@@ -7,3 +7,4 @@ dist/
 test-results/
 playwright-report/
 legacy-reference/
+convex/betterAuth/_generated/
