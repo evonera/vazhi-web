@@ -52,12 +52,13 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     if (!args.localJourneyID || !args.title.trim() || !args.destination.trim() || !args.prompt.trim()) throw new ConvexError('Add a title, destination, and question.')
+    if (args.destination.trim().length > 60 || args.prompt.trim().length > 180) throw new ConvexError('Keep the destination under 60 characters and question under 180.')
     const existingJourney = await ctx.db.query('journeys').withIndex('by_ownerAuthUserId_and_localID', (q) => q.eq('ownerAuthUserId', ownerAuthUserId).eq('localID', args.localJourneyID)).unique()
     const now = Date.now()
     const journeyId = existingJourney?._id ?? await ctx.db.insert('journeys', { ownerAuthUserId, localID: args.localJourneyID, title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, askRequestCount: 0, openAskRequestCount: 0, recommendationCount: 0, pendingRecommendationCount: 0, updatedAt: now })
     if (existingJourney) await ctx.db.patch(existingJourney._id, { title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, updatedAt: now })
     const requestSlug = slug()
-    const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId, journeyId, localJourneyID: args.localJourneyID, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', recommendationCount: 0, pendingRecommendationCount: 0, createdAt: now })
+    const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId, journeyId, localJourneyID: args.localJourneyID, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', recommendationCount: 0, pendingRecommendationCount: 0, nextAcceptanceOrder: 0, createdAt: now })
     await ctx.db.patch(journeyId, { askRequestCount: (existingJourney?.askRequestCount ?? 0) + 1, openAskRequestCount: (existingJourney?.openAskRequestCount ?? 0) + 1, updatedAt: now })
     return { id: requestId, slug: requestSlug, status: 'open' as const }
   },
@@ -127,6 +128,7 @@ export const setRecommendationStatus = mutation({
     if (!recommendation) throw new ConvexError('Recommendation not found.')
     const request = await ctx.db.get(recommendation.askRequestId)
     if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Recommendation not found.')
+    let acceptedOrder = recommendation.acceptanceOrder
     if (args.status === 'accepted' && recommendation.status !== 'accepted') {
       const accepted = await ctx.db.query('recommendations')
         .withIndex('by_askRequestId_and_status_and_submittedAt', (q) => q.eq('askRequestId', request._id).eq('status', 'accepted'))
@@ -134,17 +136,24 @@ export const setRecommendationStatus = mutation({
       if (!hasPathStopCapacity(accepted.length)) {
         throw new ConvexError(`Paths support up to ${MAX_PATH_STOPS} accepted places. Ignore an accepted place before accepting another.`)
       }
+      const acceptedInOrder = orderAcceptedRecommendations(accepted)
+      for (const [order, row] of acceptedInOrder.entries()) {
+        await ctx.db.patch(row._id, { acceptanceOrder: order })
+      }
+      acceptedOrder = Math.max(request.nextAcceptanceOrder ?? 0, acceptedInOrder.length)
+      await ctx.db.patch(request._id, { nextAcceptanceOrder: acceptedOrder + 1 })
     }
     await ctx.db.patch(recommendation._id, {
       status: args.status,
       acceptedAt: args.status === 'accepted' && recommendation.status !== 'accepted' ? Date.now() : recommendation.acceptedAt,
+      acceptanceOrder: acceptedOrder,
     })
     if (recommendation.status === 'pending' && args.status !== 'pending') {
       const journey = await ctx.db.get(request.journeyId)
       await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, request.pendingRecommendationCount - 1) })
       if (journey) await ctx.db.patch(journey._id, { pendingRecommendationCount: Math.max(0, journey.pendingRecommendationCount - 1), updatedAt: Date.now() })
     }
-    return null
+    return acceptedOrder ?? null
   },
 })
 
@@ -213,12 +222,13 @@ export const createForOwner = internalMutation({
   },
   handler: async (ctx, args) => {
     if (!args.localJourneyID || !args.title.trim() || !args.destination.trim() || !args.prompt.trim()) throw new ConvexError('Add a title, destination, and question.')
+    if (args.destination.trim().length > 60 || args.prompt.trim().length > 180) throw new ConvexError('Keep the destination under 60 characters and question under 180.')
     const existingJourney = await ctx.db.query('journeys').withIndex('by_ownerAuthUserId_and_localID', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('localID', args.localJourneyID)).unique()
     const now = Date.now()
     const journeyId = existingJourney?._id ?? await ctx.db.insert('journeys', { ownerAuthUserId: args.ownerAuthUserId, localID: args.localJourneyID, title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, askRequestCount: 0, openAskRequestCount: 0, recommendationCount: 0, pendingRecommendationCount: 0, updatedAt: now })
     if (existingJourney) await ctx.db.patch(existingJourney._id, { title: args.title, destination: args.destination, startsAt: args.startsAt, endsAt: args.endsAt, updatedAt: now })
     const requestSlug = slug()
-    const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId: args.ownerAuthUserId, journeyId, localJourneyID: args.localJourneyID, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', recommendationCount: 0, pendingRecommendationCount: 0, createdAt: now })
+    const requestId = await ctx.db.insert('askRequests', { ownerAuthUserId: args.ownerAuthUserId, journeyId, localJourneyID: args.localJourneyID, slug: requestSlug, prompt: args.prompt, destination: args.destination, journeyTitle: args.title, status: 'open', recommendationCount: 0, pendingRecommendationCount: 0, nextAcceptanceOrder: 0, createdAt: now })
     await ctx.db.patch(journeyId, { askRequestCount: (existingJourney?.askRequestCount ?? 0) + 1, openAskRequestCount: (existingJourney?.openAskRequestCount ?? 0) + 1, updatedAt: now })
     return {
       id: requestId,
@@ -257,6 +267,7 @@ export const setRecommendationStatusForOwner = internalMutation({
     if (!recommendation) throw new ConvexError('Recommendation not found.')
     const request = await ctx.db.get(recommendation.askRequestId)
     if (!request || request.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Recommendation not found.')
+    let acceptedOrder = recommendation.acceptanceOrder
     if (args.status === 'accepted' && recommendation.status !== 'accepted') {
       const accepted = await ctx.db.query('recommendations')
         .withIndex('by_askRequestId_and_status_and_submittedAt', (q) => q.eq('askRequestId', request._id).eq('status', 'accepted'))
@@ -264,17 +275,24 @@ export const setRecommendationStatusForOwner = internalMutation({
       if (!hasPathStopCapacity(accepted.length)) {
         throw new ConvexError(`Paths support up to ${MAX_PATH_STOPS} accepted places. Ignore an accepted place before accepting another.`)
       }
+      const acceptedInOrder = orderAcceptedRecommendations(accepted)
+      for (const [order, row] of acceptedInOrder.entries()) {
+        await ctx.db.patch(row._id, { acceptanceOrder: order })
+      }
+      acceptedOrder = Math.max(request.nextAcceptanceOrder ?? 0, acceptedInOrder.length)
+      await ctx.db.patch(request._id, { nextAcceptanceOrder: acceptedOrder + 1 })
     }
     await ctx.db.patch(recommendation._id, {
       status: args.status,
       acceptedAt: args.status === 'accepted' && recommendation.status !== 'accepted' ? Date.now() : recommendation.acceptedAt,
+      acceptanceOrder: acceptedOrder,
     })
     if (recommendation.status === 'pending' && args.status !== 'pending') {
       const journey = await ctx.db.get(request.journeyId)
       await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, request.pendingRecommendationCount - 1) })
       if (journey) await ctx.db.patch(journey._id, { pendingRecommendationCount: Math.max(0, journey.pendingRecommendationCount - 1), updatedAt: Date.now() })
     }
-    return null
+    return acceptedOrder ?? null
   },
 })
 

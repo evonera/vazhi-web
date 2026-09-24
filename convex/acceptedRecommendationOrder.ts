@@ -1,4 +1,5 @@
 export type AcceptedRecommendationOrderKey = {
+  acceptanceOrder?: number
   acceptedAt?: number
   submittedAt: number
 }
@@ -11,6 +12,9 @@ export function hasPathStopCapacity(acceptedCount: number): boolean {
 
 export function orderAcceptedRecommendations<T extends AcceptedRecommendationOrderKey>(recommendations: T[]): T[] {
   return [...recommendations].sort((left, right) => {
+    if (left.acceptanceOrder !== undefined && right.acceptanceOrder !== undefined && left.acceptanceOrder !== right.acceptanceOrder) {
+      return left.acceptanceOrder - right.acceptanceOrder
+    }
     const timeOrder = (left.acceptedAt ?? left.submittedAt) - (right.acceptedAt ?? right.submittedAt)
     if (timeOrder !== 0) return timeOrder
     return left.submittedAt - right.submittedAt

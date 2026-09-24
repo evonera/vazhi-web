@@ -136,6 +136,7 @@ http.route({ path: '/api/owner/recommendations', method: 'GET', handler: httpAct
       referenceURL: recommendation.referenceURL,
       status: recommendation.status,
       acceptedAt: recommendation.acceptedAt,
+      acceptanceOrder: recommendation.acceptanceOrder,
       submittedAt: recommendation.submittedAt,
     })))
   } catch {
@@ -147,12 +148,12 @@ http.route({ path: '/api/owner/recommendations', method: 'PATCH', handler: httpA
   try {
     const input = await request.json() as Record<string, unknown>
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
-    await ctx.runMutation(internal.requests.setRecommendationStatusForOwner, {
+    const acceptanceOrder = await ctx.runMutation(internal.requests.setRecommendationStatusForOwner, {
       ownerAuthUserId,
       recommendationId: typeof input.recommendationID === 'string' ? input.recommendationID : '',
       status: input.status,
     } as never)
-    return json({ updated: true })
+    return json({ updated: true, acceptanceOrder })
   } catch {
     // Do not distinguish a foreign recommendation from a malformed one.
     return json({ message: 'That recommendation could not be updated.' }, 404)

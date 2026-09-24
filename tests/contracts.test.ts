@@ -132,4 +132,13 @@ describe('accepted recommendation ordering', () => {
     expect(ordered).toHaveLength(101)
     expect(ordered[0].id).toBe('recommendation-100')
   })
+
+  it('uses persisted acceptance order when acceptance timestamps collide', () => {
+    const recommendations = [
+      { id: 'second', acceptanceOrder: 1, acceptedAt: 42, submittedAt: 1 },
+      { id: 'first', acceptanceOrder: 0, acceptedAt: 42, submittedAt: 99 },
+    ]
+
+    expect(orderAcceptedRecommendations(recommendations).map(({ id }) => id)).toEqual(['first', 'second'])
+  })
 })

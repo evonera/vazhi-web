@@ -48,6 +48,7 @@ export default defineSchema({
     status: v.union(v.literal('open'), v.literal('closed')),
     recommendationCount: v.number(),
     pendingRecommendationCount: v.number(),
+    nextAcceptanceOrder: v.optional(v.number()),
     createdAt: v.number(),
     closedAt: v.optional(v.number()),
   })
@@ -66,6 +67,7 @@ export default defineSchema({
     referenceURL: v.optional(v.string()),
     status: v.union(v.literal('pending'), v.literal('accepted'), v.literal('ignored')),
     acceptedAt: v.optional(v.number()),
+    acceptanceOrder: v.optional(v.number()),
     submittedAt: v.number(),
   })
     .index('by_askRequestId_and_submittedAt', ['askRequestId', 'submittedAt'])
