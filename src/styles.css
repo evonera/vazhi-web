@@ -19,3 +19,21 @@
 @media (prefers-reduced-motion: no-preference) { .marquee { animation: marquee 24s linear infinite; }.button { transition: transform .17s ease, background .17s ease, color .17s ease; }.button:hover:not(:disabled) { transform: translateY(-2px); }.prompt-preview { animation: card-bob 5s ease-in-out infinite alternate; } } @keyframes marquee { to { transform: translateX(-50%); } } @keyframes card-bob { to { transform: rotate(-2deg) translateY(-9px); } }
 @media (max-width: 840px) { .campaign-frame { min-height: 760px; }.hero-copy { width: min(100%, 620px); padding-top: 100px; }.device-stack { right: 3%; bottom: -54px; width: 48vw; height: 59vw; }.safety-points { grid-template-columns: 1fr; max-width: 530px; }.feature-card { min-height: 555px; }.site-footer { grid-template-columns: 1fr; justify-items: start; }.site-footer nav { justify-content: start; }.site-footer > p { text-align: left; } }
 @media (max-width: 640px) { .site-header { gap: 10px; padding: 18px 20px; }.site-header nav { display: none; }.header-download { margin-left: auto; font-size: .74rem; }.campaign-frame { width: calc(100% - 16px); min-height: 790px; border-radius: 24px; }.campaign-frame::after { width: 110vw; height: 110vw; right: -47vw; bottom: -24vw; }.marquee { top: 74px; font-size: .65rem; }.hero-copy { width: 100%; padding: 90px 24px 0; }.hero-copy h1 { font-size: clamp(3.25rem, 14vw, 4.8rem); }.hero-copy > p:not(.hero-kicker):not(.platform-note) { max-width: 33ch; margin: 22px 0; font-size: .95rem; }.button--quiet { display: none; }.device-stack { right: -2%; bottom: -23px; width: 70vw; height: 88vw; }.device { width: 47vw; border-width: 5px; border-radius: 27px; }.device--path { left: -9%; top: 14%; }.device--ask { right: 0; }.device-question { margin-top: 34px; }.route-orbit { margin: 32px 0 18px; }.scroll-cue { margin-top: 15px; }.content-band, .ask-demo, .safety-band, .download-band { padding: 74px 24px; }.feature-grid { grid-template-columns: 1fr; }.feature-card { min-height: 520px; }.feature-art { height: 240px; }.ask-demo { grid-template-columns: 1fr; }.prompt-preview { min-height: 430px; padding: 23px; transform: rotate(1.5deg); }.prompt-emoji { margin-top: 60px; }.safety-points { margin-top: 34px; }.download-band { display: grid; gap: 38px; }.qr-card { justify-self: center; }.ask-page__gradient { padding: 10px; }.ask-header { padding: 20px 8px 35px; }.ask-header .wordmark { margin-bottom: 46px; }.recommendation-card, .success-card { padding: 21px; border-width: 3px; border-radius: 22px; box-shadow: 5px 6px 0 #090909; }.ask-header h1 { font-size: clamp(2.75rem, 12.5vw, 4.3rem); }.site-footer { padding: 31px 24px; }.download-page section, .legal-page section, .dashboard-page__shell { width: calc(100% - 40px); }.product-intro h2, .ask-demo h2, .safety-band h2, .download-band h2, .download-page h1, .legal-page h1 { font-size: clamp(2.7rem, 12vw, 4.4rem); } }
+/* Keep the campaign copy and app previews in distinct layout bands. */
+@media (max-width: 640px) {
+  .campaign-frame { min-height: 1040px; }
+  .hero-copy { padding-top: 94px; }
+  .hero-copy h1 { max-width: none; font-size: clamp(2rem, 9.8vw, 3.55rem); line-height: .98; }
+  .hero-copy > p:not(.hero-kicker):not(.platform-note) { max-width: 30ch; margin: 18px 0; }
+  .hero-actions .button { min-height: 50px; }
+  .device-stack { position: relative; inset: auto; width: min(76vw, 440px); height: min(92vw, 530px); margin: 64px auto 0; }
+  .device { width: 48vw; }
+}
+@media (max-width: 840px) and (min-width: 641px) {
+  .hero-copy { width: auto; max-width: 610px; padding: 100px clamp(28px, 6vw, 56px) 0; }
+  .device-stack { position: relative; inset: auto; width: min(58vw, 500px); height: min(59vw, 500px); margin: 58px auto 0; }
+}
+@media (min-width: 841px) {
+  .hero-copy { box-sizing: border-box; width: 46%; padding-right: 20px; }
+  .hero-copy h1 { max-width: none; font-size: clamp(2.6rem, 4.8vw, 4.4rem); }
+}
