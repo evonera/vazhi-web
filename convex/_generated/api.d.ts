@@ -9,18 +9,25 @@
  */
 
 import type * as acceptedRecommendationOrder from "../acceptedRecommendationOrder.js";
+import type * as ai from "../ai.js";
+import type * as aiProviderPolicy from "../aiProviderPolicy.js";
+import type * as aiRequestValidation from "../aiRequestValidation.js";
+import type * as aiResponseValidation from "../aiResponseValidation.js";
 import type * as askProjections from "../askProjections.js";
-import type * as betterAuth__generated_api from "../betterAuth/_generated/api.js";
-import type * as betterAuth__generated_component from "../betterAuth/_generated/component.js";
-import type * as betterAuth__generated_dataModel from "../betterAuth/_generated/dataModel.js";
-import type * as betterAuth__generated_server from "../betterAuth/_generated/server.js";
 import type * as betterAuth_auth from "../betterAuth/auth.js";
 import type * as http from "../http.js";
+import type * as listings from "../listings.js";
 import type * as mapsValidation from "../mapsValidation.js";
+import type * as moderationAuth from "../moderationAuth.js";
+import type * as moderationPagination from "../moderationPagination.js";
+import type * as moderationPolicy from "../moderationPolicy.js";
 import type * as pathRouting from "../pathRouting.js";
 import type * as placeLimits from "../placeLimits.js";
 import type * as places from "../places.js";
 import type * as profiles from "../profiles.js";
+import type * as publicGuideSanitization from "../publicGuideSanitization.js";
+import type * as publicReportReceipt from "../publicReportReceipt.js";
+import type * as rateLimitKey from "../rateLimitKey.js";
 import type * as requests from "../requests.js";
 import type * as routes from "../routes.js";
 import type * as sync from "../sync.js";
@@ -34,18 +41,25 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   acceptedRecommendationOrder: typeof acceptedRecommendationOrder;
+  ai: typeof ai;
+  aiProviderPolicy: typeof aiProviderPolicy;
+  aiRequestValidation: typeof aiRequestValidation;
+  aiResponseValidation: typeof aiResponseValidation;
   askProjections: typeof askProjections;
-  "betterAuth/_generated/api": typeof betterAuth__generated_api;
-  "betterAuth/_generated/component": typeof betterAuth__generated_component;
-  "betterAuth/_generated/dataModel": typeof betterAuth__generated_dataModel;
-  "betterAuth/_generated/server": typeof betterAuth__generated_server;
   "betterAuth/auth": typeof betterAuth_auth;
   http: typeof http;
+  listings: typeof listings;
   mapsValidation: typeof mapsValidation;
+  moderationAuth: typeof moderationAuth;
+  moderationPagination: typeof moderationPagination;
+  moderationPolicy: typeof moderationPolicy;
   pathRouting: typeof pathRouting;
   placeLimits: typeof placeLimits;
   places: typeof places;
   profiles: typeof profiles;
+  publicGuideSanitization: typeof publicGuideSanitization;
+  publicReportReceipt: typeof publicReportReceipt;
+  rateLimitKey: typeof rateLimitKey;
   requests: typeof requests;
   routes: typeof routes;
   sync: typeof sync;

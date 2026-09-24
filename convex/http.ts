@@ -11,6 +11,8 @@ import { parseNativePlaceSearchInput } from '../src/lib/nativePlaceSearch'
 import { toNativePlace } from '../src/lib/nativePlaceProjection'
 import { developmentIngressSalt, opaqueRateLimitKey } from '../src/lib/publicIngress'
 import { verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
+import { parseCloudAISuggestionRequest, readBoundedAIRequestBody } from './aiRequestValidation'
+import { generateSuggestionsForOwner } from './ai'
 
 const http = httpRouter()
 
@@ -325,6 +327,52 @@ http.route({ path: '/api/owner/recommendations', method: 'PATCH', handler: httpA
   } catch {
     // Do not distinguish a foreign recommendation from a malformed one.
     return json({ message: 'That recommendation could not be updated.' }, 404)
+  }
+}) })
+
+// Native cloud AI is owner-only and receives only text explicitly selected in
+// the app's per-request consent sheet. Authentication runs before the body is
+// read so signed-out callers cannot exercise parsing or provider work.
+http.route({ path: '/api/ai/suggestions', method: 'POST', handler: httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
+  try {
+    ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+  } catch {
+    return json({ message: 'Sign in again to use cloud intelligence.' }, 401)
+  }
+  if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
+    return json({ message: 'Cloud intelligence expects JSON.' }, 415)
+  }
+  let parsed: unknown
+  try {
+    const body = await readBoundedAIRequestBody(request)
+    if (body === null) return json({ message: 'Select fewer or shorter notes.' }, 413)
+    parsed = JSON.parse(body)
+  } catch {
+    return json({ message: 'Check the selected notes and try again.' }, 400)
+  }
+  const input = parseCloudAISuggestionRequest(parsed)
+  if (!input) return json({ message: 'Select between 1 and 20 valid notes.' }, 400)
+
+  try {
+    const result = await generateSuggestionsForOwner(ctx, {
+      ownerAuthUserId,
+      ...input,
+    })
+    if (result.kind === 'rate_limited') {
+      return json({ message: 'You have reached the cloud-intelligence limit. Try again later.' }, 429)
+    }
+    return new Response(JSON.stringify({ suggestions: result.suggestions }), {
+      headers: {
+        'content-type': 'application/json',
+        'cache-control': 'no-store',
+        'access-control-allow-origin': process.env.SITE_URL ?? '',
+        vary: 'Origin',
+      },
+    })
+  } catch {
+    // Never log prompts, journal text, source IDs, or provider responses.
+    return json({ message: 'Cloud intelligence is temporarily unavailable. Your journal was not changed.' }, 503)
   }
 }) })
 

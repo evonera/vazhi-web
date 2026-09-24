@@ -164,6 +164,20 @@ export default defineSchema({
     lastSyncJobCreatedAt: v.optional(v.string()),
   }).index('by_ownerAuthUserId_and_localMomentId', ['ownerAuthUserId', 'localMomentId']),
 
+  // Account-level receipts for the optional cloud-AI quota. Never store source
+  // text, IDs, prompts, coordinates, media, provider payloads, or responses.
+  aiUsageEvents: defineTable({
+    ownerAuthUserId: v.string(),
+    provider: v.string(),
+    model: v.string(),
+    outcome: v.union(
+      v.literal('success'),
+      v.literal('provider_failure'),
+      v.literal('invalid_response'),
+    ),
+    createdAt: v.number(),
+  }).index('by_ownerAuthUserId_and_createdAt', ['ownerAuthUserId', 'createdAt']),
+
   // Profiles are opt-in. No Journey, Moment, email, Apple subject, or billing
   // metadata is ever a public profile field.
   profiles: defineTable({
