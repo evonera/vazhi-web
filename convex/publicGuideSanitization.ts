@@ -9,9 +9,12 @@ export type PublicGuideStopInput = {
   latitude?: number
   longitude?: number
   isApproximateLocation: boolean
+  placeSource: 'google' | 'apple' | 'manual' | 'device'
+  placeProviderID?: string
+  authorTitle?: string
 }
 
-export type SanitizedPublicGuideStop = Omit<PublicGuideStopInput, 'latitude' | 'longitude'> & {
+export type SanitizedPublicGuideStop = Omit<PublicGuideStopInput, 'latitude' | 'longitude' | 'authorTitle'> & {
   latitude?: number
   longitude?: number
 }
@@ -34,15 +37,24 @@ export function sanitizePublicGuideStops(stops: PublicGuideStopInput[]): Sanitiz
       seen.add(item.orderIndex)
       if (item.latitude !== undefined && (item.latitude < -90 || item.latitude > 90)) throw new ConvexError('A stop has invalid latitude.')
       if (item.longitude !== undefined && (item.longitude < -180 || item.longitude > 180)) throw new ConvexError('A stop has invalid longitude.')
+      const isGoogle = item.placeSource === 'google'
+      if (item.placeProviderID && !isGoogle) {
+        throw new ConvexError('A Google Place ID must use the Google provider.')
+      }
+      if (isGoogle && (!item.placeProviderID || item.placeProviderID.length > 255)) {
+        throw new ConvexError('A Google stop needs a valid Place ID.')
+      }
       return {
         orderIndex: index,
-        title: clean(item.title, 120, 'Stop title'),
+        title: isGoogle ? clean(item.authorTitle ?? '', 120, 'Your Google stop label') : clean(item.title, 120, 'Stop title'),
         notes: item.notes.trim().slice(0, 1_000),
-        placeName: item.placeName?.trim().slice(0, 160) || undefined,
-        locality: item.locality?.trim().slice(0, 120) || undefined,
-        latitude: item.isApproximateLocation ? undefined : item.latitude,
-        longitude: item.isApproximateLocation ? undefined : item.longitude,
-        isApproximateLocation: item.isApproximateLocation,
+        placeName: isGoogle ? undefined : item.placeName?.trim().slice(0, 160) || undefined,
+        locality: isGoogle ? undefined : item.locality?.trim().slice(0, 120) || undefined,
+        latitude: isGoogle || item.isApproximateLocation ? undefined : item.latitude,
+        longitude: isGoogle || item.isApproximateLocation ? undefined : item.longitude,
+        isApproximateLocation: isGoogle ? false : item.isApproximateLocation,
+        placeSource: item.placeSource,
+        placeProviderID: isGoogle ? item.placeProviderID : undefined,
       }
     })
 }

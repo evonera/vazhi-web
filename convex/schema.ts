@@ -10,10 +10,10 @@ const category = v.union(
 const place = v.object({
   provider: v.union(v.literal('google'), v.literal('manual')),
   providerPlaceID: v.optional(v.string()),
-  name: v.string(),
+  name: v.optional(v.string()),
   address: v.optional(v.string()),
-  latitude: v.number(),
-  longitude: v.number(),
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
   primaryType: v.optional(v.string()),
 })
 
@@ -134,6 +134,7 @@ export default defineSchema({
     ownerAuthUserId: v.string(),
     localJourneyId: v.string(),
     title: v.string(),
+    destinationText: v.optional(v.string()),
     summaryText: v.string(),
     createdAt: v.string(),
     updatedAt: v.string(),
@@ -235,6 +236,8 @@ export default defineSchema({
       latitude: v.optional(v.number()),
       longitude: v.optional(v.number()),
       isApproximateLocation: v.boolean(),
+      placeSource: v.optional(v.union(v.literal('google'), v.literal('apple'), v.literal('manual'), v.literal('device'))),
+      placeProviderID: v.optional(v.string()),
     })),
     createdAt: v.number(),
   }).index('by_listingId_and_versionNumber', ['listingId', 'versionNumber']),

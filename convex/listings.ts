@@ -1,5 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { paginationOptsValidator } from 'convex/server'
+import { internal } from './_generated/api'
+import { paginationOptsValidator } from 'convex/server'
 import { internalMutation, internalQuery } from './_generated/server'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
@@ -16,6 +18,9 @@ const stop = v.object({
   latitude: v.optional(v.number()),
   longitude: v.optional(v.number()),
   isApproximateLocation: v.boolean(),
+  placeSource: v.union(v.literal('google'), v.literal('apple'), v.literal('manual'), v.literal('device')),
+  placeProviderID: v.optional(v.string()),
+  authorTitle: v.optional(v.string()),
 })
 
 const reportLimiter = new RateLimiter(components.rateLimiter, {
@@ -82,6 +87,35 @@ export const publishForOwner = internalMutation({
       updatedAt: now,
     })
     return { slug: existing?.slug ?? (await ctx.db.get(listingId))!.slug, handle: profile.handle, versionNumber }
+  },
+})
+
+/** Legacy guide stops lack provenance. Scrub their provider-looking fields before release. */
+export const purgeLegacyGuideStopDetails = internalMutation({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const page = await ctx.db.query('itineraryVersions').paginate(paginationOpts)
+    let purged = 0
+    for (const version of page.page) {
+      if (!version.stops.some((stop) => !stop.placeSource)) continue
+      const stops = version.stops.map((stop, index) => {
+        if (stop.placeSource) return stop
+        return {
+          orderIndex: stop.orderIndex,
+          title: `Stop ${index + 1}`,
+          notes: stop.notes,
+          isApproximateLocation: stop.isApproximateLocation,
+        }
+      })
+      await ctx.db.patch(version._id, { stops })
+      purged += 1
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.listings.purgeLegacyGuideStopDetails, {
+        paginationOpts: { numItems: 100, cursor: page.continueCursor },
+      })
+    }
+    return { purged, isDone: page.isDone }
   },
 })
 

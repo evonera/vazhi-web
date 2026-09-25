@@ -1,10 +1,11 @@
 import { ConvexError, v } from 'convex/values'
+import { paginationOptsValidator } from 'convex/server'
 import { internalAction, internalMutation, internalQuery, mutation } from './_generated/server'
 import { authComponent } from './betterAuth/auth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { RateLimiter, DAY } from '@convex-dev/rate-limiter'
-import { components } from './_generated/api'
+import { components, internal } from './_generated/api'
 import { isCurrentRouteRevision, validatePrivatePathRouteInput } from '../src/lib/pathRoutingValidation'
 
 const waypoint = v.object({ latitude: v.number(), longitude: v.number() })
@@ -152,9 +153,40 @@ export const saveSnapshotForOwner = internalMutation({
     }
     if (existing) {
       await ctx.db.replace(existing._id, value)
+      await ctx.scheduler.runAt(value.expiresAt, internal.routes.deleteExpiredSnapshot, { snapshotID: existing._id })
       return existing._id
     }
-    return ctx.db.insert('routeSnapshots', value)
+    const snapshotID = await ctx.db.insert('routeSnapshots', value)
+    await ctx.scheduler.runAt(value.expiresAt, internal.routes.deleteExpiredSnapshot, { snapshotID })
+    return snapshotID
+  },
+})
+
+export const deleteExpiredSnapshot = internalMutation({
+  args: { snapshotID: v.id('routeSnapshots') },
+  handler: async (ctx, { snapshotID }) => {
+    const route = await ctx.db.get(snapshotID)
+    if (route && route.expiresAt <= Date.now()) await ctx.db.delete(snapshotID)
+  },
+})
+
+/** Cleanup for snapshots created before scheduled physical deletion existed. */
+export const purgeExpiredRouteSnapshots = internalMutation({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const page = await ctx.db.query('routeSnapshots').paginate(paginationOpts)
+    let purged = 0
+    for (const route of page.page) {
+      if (route.expiresAt > Date.now()) continue
+      await ctx.db.delete(route._id)
+      purged += 1
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.routes.purgeExpiredRouteSnapshots, {
+        paginationOpts: { numItems: 100, cursor: page.continueCursor },
+      })
+    }
+    return { purged, isDone: page.isDone }
   },
 })
 

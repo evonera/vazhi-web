@@ -26,3 +26,4 @@
   .hero-copy { box-sizing: border-box; width: 46%; padding-right: 20px; }
   .hero-copy h1 { max-width: none; font-size: clamp(2.6rem, 4.8vw, 4.4rem); }
 }
+.provider-attribution { color: #45413f; font-size: .75rem; font-weight: 700; white-space: nowrap; }

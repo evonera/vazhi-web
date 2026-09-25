@@ -78,6 +78,8 @@ export type PublicListing = {
     latitude?: number
     longitude?: number
     isApproximateLocation: boolean
+    placeSource?: 'google' | 'apple' | 'manual' | 'device'
+    placeProviderID?: string
   }>
 }
 

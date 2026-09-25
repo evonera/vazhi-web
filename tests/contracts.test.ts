@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { hasPathStopCapacity, MAX_PATH_STOPS, orderAcceptedRecommendations } from '../convex/acceptedRecommendationOrder'
 import { isSafeReferenceURL } from '../src/lib/contracts'
 import { buildPlaceAutocompleteInput, buildPlaceSearchQuery, hasValidCoordinates } from '../convex/mapsValidation'
-import { getOutboxJobValidationError, isSnapshotNewer } from '../convex/syncValidation'
+import { durableMomentPlaceFields, getOutboxJobValidationError, isSnapshotNewer } from '../convex/syncValidation'
 import { toOwnerAskRequest, toPublicAskRequest } from '../convex/askProjections'
 
 describe('reference URL validation', () => {
@@ -35,7 +35,7 @@ describe('outbox job preflight validation', () => {
     createdAt: '2026-09-24T00:00:00.000Z',
     actionType: 'createMoment' as const,
     journeyId: 'journey-a',
-    journey: { id: 'journey-a', updatedAt: '2026-09-24T00:00:00.000Z' },
+    journey: { id: 'journey-a', updatedAt: '2026-09-24T00:00:00.000Z', destinationText: 'Wayanad, Kerala' },
     moment: { id: 'moment-a', journeyId: 'journey-a' },
   }
 
@@ -84,6 +84,30 @@ describe('outbox source snapshot ordering', () => {
   it('accepts the first snapshot and rejects malformed timestamps', () => {
     expect(isSnapshotNewer('2026-09-24T00:00:00.000Z', '2026-09-24T00:00:00.000Z')).toBe(true)
     expect(isSnapshotNewer('invalid', '2026-09-24T00:00:00.000Z')).toBe(false)
+  })
+})
+
+describe('durable place metadata projection', () => {
+  it('keeps only Place ID and provenance for Google-derived results', () => {
+    expect(durableMomentPlaceFields({
+      placeSource: 'google',
+      placeProviderID: 'ChIJexample',
+      placeName: 'Example Cafe',
+      formattedAddress: 'Main Street',
+      latitude: 3.14,
+      longitude: 101.7,
+      placePrimaryType: 'cafe',
+    })).toEqual({ placeSource: 'google', placeProviderID: 'ChIJexample' })
+  })
+
+  it('keeps user-created and Apple place details', () => {
+    const appleFields = {
+      placeSource: 'apple',
+      placeName: 'Example Park',
+      latitude: 3.14,
+      longitude: 101.7,
+    }
+    expect(durableMomentPlaceFields(appleFields)).toEqual(appleFields)
   })
 })
 

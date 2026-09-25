@@ -31,3 +31,13 @@ npm run preflight:release -- --target=convex --commerce
 Set `VAZHI_ENVIRONMENT` to `preview` or `production`. Use `--commerce` only when enabling RevenueCat Web/Paddle. Keep `EDGE_INGRESS_SIGNING_SECRET` and `RATE_LIMIT_SALT` paired between the matching Worker and Convex deployment. `TURNSTILE_SECRET_KEY` belongs only in the Worker; `VITE_TURNSTILE_SITE_KEY` is intentionally public build configuration.
 
 Presence checks cannot prove that credentials authorize the intended API. After preflight, run the deployed sign-in, place-search, route, Turnstile, and full Ask-the-Way flow. Never paste secret values into a terminal command merely to run this script.
+
+## Google Places data migration gate
+
+The September UI reconciliation changes storage so new Google recommendations, private Moments, Path stops, and published guides retain Place IDs without Google-returned names, addresses, types, or coordinates. Authenticated native views fetch details when visible. Public guides use an explicitly author-written stop label and link to Google Maps by Place ID.
+
+Before releasing the new clients, deploy the backend schema and endpoints, then invoke the resumable internal purges for `sync.purgeGooglePlaceDetails`, `requests.purgeGoogleRecommendationDetails`, `requests.purgeGooglePathStopDetails`, and `routes.purgeExpiredRouteSnapshots`. Each accepts `paginationOpts` beginning with `{ "numItems": 100, "cursor": null }` and schedules subsequent pages. Verify completion and inspect a sample of each table. New route snapshots schedule their own physical deletion at expiry.
+
+Legacy published-guide versions have no provider provenance. Review affected guides and obtain approval for `listings.purgeLegacyGuideStopDetails`: it replaces those older stop headings with generic labels and removes their location details. The operation cannot reconstruct lost user-authored headings. Verify the public guide response after migration. Older iOS clients must update before publishing because new publication input requires a place source on every stop.
+
+The iOS client also purges older locally stored Google place details at startup. A failed local cleanup blocks normal app operations rather than leaving restricted fields available. Provision a separate iOS-restricted `GOOGLE_MAPS_IOS_API_KEY` and verify Places attribution, route maps, and offline fallback on device before release.

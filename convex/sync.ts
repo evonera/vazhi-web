@@ -1,10 +1,12 @@
 import { v } from 'convex/values'
-import { mutation } from './_generated/server'
+import { paginationOptsValidator } from 'convex/server'
+import { internal } from './_generated/api'
+import { internalMutation, mutation } from './_generated/server'
 import { authComponent } from './betterAuth/auth'
-import { getOutboxJobValidationError, isSnapshotNewer } from './syncValidation'
+import { durableMomentPlaceFields, getOutboxJobValidationError, isSnapshotNewer } from './syncValidation'
 
 const journey = v.object({
-  id: v.string(), title: v.string(), summaryText: v.string(),
+  id: v.string(), title: v.string(), destinationText: v.optional(v.string()), summaryText: v.string(),
   createdAt: v.string(), updatedAt: v.string(),
 })
 
@@ -67,6 +69,7 @@ export const pushOutboxBatch = mutation({
       if (shouldApplyJourney) {
         const journeyRecord = {
           ownerAuthUserId, localJourneyId: journeySnapshot.id, title: journeySnapshot.title,
+          ...(journeySnapshot.destinationText === undefined ? {} : { destinationText: journeySnapshot.destinationText }),
           summaryText: journeySnapshot.summaryText, createdAt: journeySnapshot.createdAt,
           updatedAt: journeySnapshot.updatedAt, lastSyncJobCreatedAt: item.createdAt,
         }
@@ -87,16 +90,28 @@ export const pushOutboxBatch = mutation({
           currentMoment.lastSyncJobCreatedAt,
         )
         if (shouldApplyMoment) {
+          const isGooglePlace = validMoment.placeSource?.toLowerCase() === 'google'
+          const placeMetadata = durableMomentPlaceFields(validMoment)
           const momentRecord = {
             ownerAuthUserId, localMomentId: validMoment.id, localJourneyId: validMoment.journeyId,
             capturedAt: validMoment.capturedAt, note: validMoment.note, syncState: validMoment.syncState,
-            latitude: validMoment.latitude, longitude: validMoment.longitude, placeName: validMoment.placeName,
-            locality: validMoment.locality, country: validMoment.country, placeSource: validMoment.placeSource,
-            placeProviderID: validMoment.placeProviderID, formattedAddress: validMoment.formattedAddress,
-            placePrimaryType: validMoment.placePrimaryType, assetKinds: validMoment.assetKinds,
+            ...placeMetadata, assetKinds: validMoment.assetKinds,
             updatedAt: Date.now(), sourceUpdatedAt: journeySnapshot.updatedAt, lastSyncJobCreatedAt: item.createdAt,
           }
-          if (currentMoment) await ctx.db.patch(currentMoment._id, momentRecord)
+          if (currentMoment) {
+            await ctx.db.patch(currentMoment._id, isGooglePlace
+              ? {
+                  ...momentRecord,
+                  latitude: undefined,
+                  longitude: undefined,
+                  placeName: undefined,
+                  locality: undefined,
+                  country: undefined,
+                  formattedAddress: undefined,
+                  placePrimaryType: undefined,
+                }
+              : momentRecord)
+          }
           else await ctx.db.insert('syncedMoments', momentRecord)
         }
       }
@@ -107,5 +122,39 @@ export const pushOutboxBatch = mutation({
       syncedJobIds.push(item.jobId)
     }
     return { syncedJobIds, failedJobIds, serverTimestamp: Date.now() }
+  },
+})
+
+/**
+ * One-time, resumable cleanup for Google place details already stored by old
+ * clients. Run once after deploying the source-aware projection above.
+ */
+export const purgeGooglePlaceDetails = internalMutation({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const page = await ctx.db.query('syncedMoments').paginate(paginationOpts)
+    let purged = 0
+
+    for (const moment of page.page) {
+      if (moment.placeSource?.toLowerCase() !== 'google') continue
+      await ctx.db.patch('syncedMoments', moment._id, {
+        latitude: undefined,
+        longitude: undefined,
+        placeName: undefined,
+        locality: undefined,
+        country: undefined,
+        formattedAddress: undefined,
+        placePrimaryType: undefined,
+      })
+      purged += 1
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.sync.purgeGooglePlaceDetails, {
+        paginationOpts: { numItems: 100, cursor: page.continueCursor },
+      })
+    }
+
+    return { purged, isDone: page.isDone }
   },
 })

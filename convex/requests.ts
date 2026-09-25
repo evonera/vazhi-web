@@ -1,5 +1,7 @@
 import { ConvexError, v } from 'convex/values'
+import { paginationOptsValidator } from 'convex/server'
 import { internalMutation, internalQuery, mutation, query } from './_generated/server'
+import { internal } from './_generated/api'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
 import { authComponent } from './betterAuth/auth'
@@ -7,6 +9,7 @@ import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { toOwnerAskRequest, toPublicAskRequest } from './askProjections'
 import { MAX_PATH_STOPS, hasPathStopCapacity, orderAcceptedRecommendations } from './acceptedRecommendationOrder'
+import { durableRecommendationPlace } from '../src/lib/googlePlaceRetention'
 
 const category = v.union(
   v.literal('food'), v.literal('hidden_spot'), v.literal('stay'),
@@ -210,11 +213,54 @@ export const submitPublic = internalMutation({
     if (!args.place.name.trim() || args.note.trim().length === 0 || args.note.length > 500) throw new ConvexError('Add a place and a short recommendation.')
     if (args.referenceURL && !isHTTPSURL(args.referenceURL)) throw new ConvexError('Reference links must use HTTPS.')
     if (args.place.latitude < -90 || args.place.latitude > 90 || args.place.longitude < -180 || args.place.longitude > 180) throw new ConvexError('Choose a valid map location.')
-    await ctx.db.insert('recommendations', { askRequestId: request._id, anonymous: args.anonymous, contributorName: args.anonymous ? undefined : args.contributorName?.trim(), contributorHandle: args.anonymous ? undefined : args.contributorHandle?.trim(), category: args.category, place: args.place, note: args.note.trim(), referenceURL: args.referenceURL, status: 'pending', submittedAt: Date.now() })
+    if (args.place.provider === 'google' && !args.place.providerPlaceID) throw new ConvexError('Choose a valid Google place.')
+    const durablePlace = durableRecommendationPlace(args.place)
+    await ctx.db.insert('recommendations', { askRequestId: request._id, anonymous: args.anonymous, contributorName: args.anonymous ? undefined : args.contributorName?.trim(), contributorHandle: args.anonymous ? undefined : args.contributorHandle?.trim(), category: args.category, place: durablePlace, note: args.note.trim(), referenceURL: args.referenceURL, status: 'pending', submittedAt: Date.now() })
     const journey = await ctx.db.get(request.journeyId)
     await ctx.db.patch(request._id, { recommendationCount: request.recommendationCount + 1, pendingRecommendationCount: request.pendingRecommendationCount + 1 })
     if (journey) await ctx.db.patch(journey._id, { recommendationCount: journey.recommendationCount + 1, pendingRecommendationCount: journey.pendingRecommendationCount + 1, updatedAt: Date.now() })
     return null
+  },
+})
+
+/** Resumable cleanup of provider-returned details saved by older clients. */
+export const purgeGoogleRecommendationDetails = internalMutation({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const page = await ctx.db.query('recommendations').paginate(paginationOpts)
+    let purged = 0
+    for (const recommendation of page.page) {
+      if (recommendation.place.provider !== 'google') continue
+      await ctx.db.patch(recommendation._id, {
+        place: { provider: 'google', providerPlaceID: recommendation.place.providerPlaceID },
+      })
+      purged += 1
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.requests.purgeGoogleRecommendationDetails, {
+        paginationOpts: { numItems: 100, cursor: page.continueCursor },
+      })
+    }
+    return { purged, isDone: page.isDone }
+  },
+})
+
+export const purgeGooglePathStopDetails = internalMutation({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const page = await ctx.db.query('pathStops').paginate(paginationOpts)
+    let purged = 0
+    for (const stop of page.page) {
+      if (stop.place.provider !== 'google') continue
+      await ctx.db.patch(stop._id, { place: { provider: 'google', providerPlaceID: stop.place.providerPlaceID } })
+      purged += 1
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.requests.purgeGooglePathStopDetails, {
+        paginationOpts: { numItems: 100, cursor: page.continueCursor },
+      })
+    }
+    return { purged, isDone: page.isDone }
   },
 })
 

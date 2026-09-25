@@ -7,6 +7,29 @@ type SyncJobForValidation = {
   moment?: { id?: string; journeyId: string }
 }
 
+export type MomentPlaceFields = {
+  latitude?: number
+  longitude?: number
+  placeName?: string
+  locality?: string
+  country?: string
+  placeSource?: string
+  placeProviderID?: string
+  formattedAddress?: string
+  placePrimaryType?: string
+}
+
+/** Keep Google Place IDs and provenance; Google response fields are transient. */
+export function durableMomentPlaceFields(moment: MomentPlaceFields): MomentPlaceFields {
+  if (moment.placeSource?.toLowerCase() === 'google') {
+    return {
+      placeSource: moment.placeSource,
+      placeProviderID: moment.placeProviderID,
+    }
+  }
+  return { ...moment }
+}
+
 /** Validate all cross-record constraints before the Convex mutation writes. */
 export function getOutboxJobValidationError(item: SyncJobForValidation): string | null {
   if (!item.jobId?.trim()) return 'A non-empty outbox job ID is required.'

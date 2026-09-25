@@ -301,7 +301,9 @@ http.route({ path: '/api/owner/recommendations', method: 'GET', handler: httpAct
       contributorName: recommendation.contributorName,
       contributorHandle: recommendation.contributorHandle,
       category: recommendation.category,
-      place: recommendation.place,
+      place: recommendation.place.provider === 'google'
+        ? { provider: 'google', providerPlaceID: recommendation.place.providerPlaceID, name: 'Saved Google place', latitude: 0, longitude: 0 }
+        : recommendation.place,
       note: recommendation.note,
       referenceURL: recommendation.referenceURL,
       status: recommendation.status,
@@ -406,6 +408,28 @@ http.route({ path: '/api/owner/places/search', method: 'POST', handler: httpActi
     return json(places.map(toNativePlace))
   } catch {
     return json({ message: 'Place search is temporarily unavailable.' }, 503)
+  }
+}) })
+
+// Place IDs are durable; display details are fetched only while an owner is
+// viewing them. This response must never be cached by a browser or proxy.
+http.route({ path: '/api/owner/places/details', method: 'GET', handler: httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
+  try {
+    ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+  } catch {
+    return json({ message: 'Sign in to view this place.' }, 401)
+  }
+  const placeID = new URL(request.url).searchParams.get('placeID') ?? ''
+  if (!placeID || placeID.length > 255) return json({ message: 'Invalid Place ID.' }, 400)
+  try {
+    await ctx.runMutation(internal.placeLimits.consumeOwnerSearch, { ownerAuthUserId })
+    const place = await ctx.runAction(internal.places.details, { placeID })
+    return new Response(JSON.stringify(toNativePlace(place)), {
+      headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+    })
+  } catch {
+    return json({ message: 'Place details are temporarily unavailable.' }, 503)
   }
 }) })
 
