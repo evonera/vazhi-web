@@ -192,6 +192,14 @@ export default defineSchema({
     .index('by_ownerAuthUserId', ['ownerAuthUserId'])
     .index('by_handle', ['handle']),
 
+  accountDeletionJobs: defineTable({
+    ownerAuthUserId: v.string(),
+    state: v.union(v.literal('pending'), v.literal('active')),
+    phase: v.number(),
+    cursor: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index('by_ownerAuthUserId', ['ownerAuthUserId']),
+
   profileHandleAliases: defineTable({
     ownerAuthUserId: v.string(),
     handle: v.string(),

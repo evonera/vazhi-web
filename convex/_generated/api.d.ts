@@ -9,6 +9,7 @@
  */
 
 import type * as acceptedRecommendationOrder from "../acceptedRecommendationOrder.js";
+import type * as accountDeletion from "../accountDeletion.js";
 import type * as ai from "../ai.js";
 import type * as aiProviderPolicy from "../aiProviderPolicy.js";
 import type * as aiRequestValidation from "../aiRequestValidation.js";
@@ -41,6 +42,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   acceptedRecommendationOrder: typeof acceptedRecommendationOrder;
+  accountDeletion: typeof accountDeletion;
   ai: typeof ai;
   aiProviderPolicy: typeof aiProviderPolicy;
   aiRequestValidation: typeof aiRequestValidation;
