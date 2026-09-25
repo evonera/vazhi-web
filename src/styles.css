@@ -1,6 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 :root { color: #f8f5ef; background: #090909; font-family: Manrope, ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-synthesis: none; }
+.legal-content { max-width: 70ch; padding: 32px 0 12px; }
+.legal-content h2 { margin: 38px 0 10px; font-size: clamp(1.3rem, 3vw, 1.7rem); letter-spacing: -.04em; }
+.legal-content p { margin: 0 0 18px; color: #34312e; line-height: 1.65; }
+.legal-content a { color: #a90051; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.legal-content .legal-updated { color: #66615c; font-size: .85rem; font-weight: 700; }
 * { box-sizing: border-box; } html { scroll-behavior: smooth; } body { min-width: 320px; margin: 0; background: #090909; } a { color: inherit; } button, input, textarea, select { font: inherit; } button, .button { min-height: 48px; } :focus-visible { outline: 3px solid #f7e75f; outline-offset: 4px; }
 
 .wordmark { display: inline-block; color: inherit; font-size: 1.65rem; font-weight: 800; letter-spacing: -.11em; text-decoration: none; }.wordmark span { color: #ff4d7d; }.site-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; max-width: 1280px; margin: 0 auto; padding: 22px clamp(20px, 4vw, 52px); color: #f8f5ef; }.site-header nav { display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(12px, 2.2vw, 32px); }.site-header nav a, .header-download { font-size: .8rem; font-weight: 800; text-decoration: none; }.site-header nav a:hover, .header-download:hover, .site-footer a:hover { text-decoration: underline; }.header-download { padding: 10px 14px; border: 1px solid rgba(255,255,255,.55); border-radius: 999px; white-space: nowrap; }
