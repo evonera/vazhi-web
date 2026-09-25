@@ -24,6 +24,26 @@ const privateStop = v.object({
   localStopID: v.string(), orderIndex: v.number(),
   place: v.union(googleRoutePlace, coordinateRoutePlace),
 })
+type RouteWaypoint = { placeId: string } | { latitude: number; longitude: number }
+
+function routeWaypointForPlace(place: {
+  provider: string
+  providerPlaceID?: string
+  latitude?: number
+  longitude?: number
+}): RouteWaypoint {
+  if (place.provider === 'google') {
+    const placeId = place.providerPlaceID?.trim()
+    if (!placeId) throw new ConvexError('A Google Path stop is missing its Place ID. Choose the place again.')
+    return { placeId }
+  }
+  const { latitude, longitude } = place
+  if (latitude === undefined || longitude === undefined || !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+    latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    throw new ConvexError('A Path stop is missing a valid location. Edit the stop before calculating a route.')
+  }
+  return { latitude, longitude }
+}
 const routeLimiter = new RateLimiter(components.rateLimiter, {
   ownerPathSync: { kind: 'token bucket', rate: 30, period: DAY, capacity: 10 },
   ownerRouteCalculation: { kind: 'token bucket', rate: 12, period: DAY, capacity: 4 },
@@ -120,15 +140,11 @@ export const storedStopsForOwner = internalQuery({
     if (!path || path.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Path not found.')
     const privateStops = await ctx.db.query('privateRouteStops')
       .withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', path._id)).order('asc').take(26)
-    const stops = privateStops.length > 0
-      ? privateStops.map((stop) => stop.provider === 'google'
-        ? { placeId: stop.providerPlaceID! }
-        : { latitude: stop.latitude!, longitude: stop.longitude! })
+    const stops: RouteWaypoint[] = privateStops.length > 0
+      ? privateStops.map(routeWaypointForPlace)
       : (await ctx.db.query('pathStops')
         .withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', path._id)).order('asc').take(26))
-        .map((stop) => stop.place.provider === 'google' && stop.place.providerPlaceID
-          ? { placeId: stop.place.providerPlaceID }
-          : { latitude: stop.place.latitude, longitude: stop.place.longitude })
+        .map((stop) => routeWaypointForPlace(stop.place))
     if (stops.length < 2 || stops.length > 25) throw new ConvexError('Add 2–25 located stops before calculating a route.')
     return { routeRevision: path.routeRevision ?? 0, stops }
   },

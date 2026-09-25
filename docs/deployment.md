@@ -9,6 +9,10 @@
 
 Both Workers have Turnstile, edge-ingress, rate-limit, origin, and Convex-origin configuration. Both Convex deployments have separate Better Auth, edge-ingress, rate-limit, and Google Places/Routes configuration. Production and preview public forms reject unverified writes before Convex.
 
+On 25 September 2026, the provider-aware Convex functions and website were deployed to both environments. The preview Worker version was `f9dc9d18-c3b7-4a2b-b04f-0e1e73f8c8f1` and production version was `abac0ce4-564c-42d7-81fe-e0006506388d`. The four Google-detail and expired-route cleanup jobs completed in each deployment and purged zero records; the production tables were empty. The authenticated moderation queue returned HTTP 200 after its pagination fix. Home and demo pages loaded in a browser at desktop and 390px width without page errors; public invalid requests returned the expected 400/401/404 responses. Unit, browser, and deployment dry-run checks passed. This is a boundary smoke check, not a completed authenticated end-to-end product test.
+
+The website is publicly available on the production `workers.dev` URL above. `vazhi.app` is not yet attached: the current Cloudflare account has no `vazhi.app` zone, so a domain owner must add or delegate the zone before a Worker Custom Domain can be configured. Keep the iOS release web URL pointed at the live Worker until that is done.
+
 Google Maps Platform billing is linked to `vazhi-509423`; Places API (New) and Routes API are enabled. The restricted production key is stored in Convex only. Earlier smoke checks returned HTTP 200 for Places Text Search and Compute Routes. This does not prove the full product flow or native map rendering.
 
 The following remain deliberately absent until their providers are ready:
@@ -16,6 +20,7 @@ The following remain deliberately absent until their providers are ready:
 - `APPLE_SERVICE_ID` and `APPLE_CLIENT_SECRET`: require Apple Developer enrollment and Sign in with Apple web configuration.
 - `REVENUECAT_WEBHOOK_SIGNING_SECRET` and `REVENUECAT_WEB_PURCHASE_LINK_PRODUCTION`: require RevenueCat Web/Paddle provider access and final `vazhi_pro` mapping.
 - `IOS_APP_STORE_URL` and the final `vazhi.app` download route: require the App Store listing and branded domain.
+- Native release keys `GOOGLE_MAPS_IOS_API_KEY` and the iOS public `REVENUECAT_API_KEY` are blank in `Config/Release.xcconfig`. Provision a bundle-restricted Maps SDK for iOS key and the RevenueCat App Store platform key before validating a signed release. The Test Store key in Debug is not suitable for production.
 - cloud AI provider variables are optional; the core product and on-device AI must continue to work without them.
 
 ## Run the preflight
@@ -31,6 +36,17 @@ npm run preflight:release -- --target=convex --commerce
 Set `VAZHI_ENVIRONMENT` to `preview` or `production`. Use `--commerce` only when enabling RevenueCat Web/Paddle. Keep `EDGE_INGRESS_SIGNING_SECRET` and `RATE_LIMIT_SALT` paired between the matching Worker and Convex deployment. `TURNSTILE_SECRET_KEY` belongs only in the Worker; `VITE_TURNSTILE_SITE_KEY` is intentionally public build configuration.
 
 Presence checks cannot prove that credentials authorize the intended API. After preflight, run the deployed sign-in, place-search, route, Turnstile, and full Ask-the-Way flow. Never paste secret values into a terminal command merely to run this script.
+
+Builds typecheck both the website and Convex functions. Deploy the Worker only after deploying the matching Convex functions:
+
+```sh
+npm run deploy:preview -- --dry-run
+npm run deploy:preview
+npm run deploy:production -- --dry-run
+npm run deploy:production
+```
+
+The deploy script injects the public Convex site URL and Turnstile site key for each target, uses Vite's generated Worker configuration, and preserves existing Worker secrets. `npm run deploy` without an explicit target exits without deploying.
 
 ## Google Places data migration gate
 

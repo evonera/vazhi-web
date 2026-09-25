@@ -8,12 +8,14 @@
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && tsc --noEmit --project convex/tsconfig.json && vite build",
     "test": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test",
     "preflight:release": "node scripts/preflight.mjs",
     "convex:dev": "convex dev",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "node scripts/deploy.mjs",
+    "deploy:preview": "node scripts/deploy.mjs preview",
+    "deploy:production": "node scripts/deploy.mjs production"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",

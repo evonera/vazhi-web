@@ -1,8 +1,9 @@
 import { ConvexError, v } from 'convex/values'
 import { paginationOptsValidator } from 'convex/server'
 import { internal } from './_generated/api'
-import { paginationOptsValidator } from 'convex/server'
 import { internalMutation, internalQuery } from './_generated/server'
+import type { QueryCtx } from './_generated/server'
+import type { Doc } from './_generated/dataModel'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
 import { clean, sanitizePublicGuideStops } from './publicGuideSanitization'
@@ -244,20 +245,42 @@ export const reportPublicListing = internalMutation({
   },
 })
 
-/** Server-only moderation queue. The HTTP boundary requires a separate secret. */
-export const listModerationQueue = internalQuery({
-  args: {
-    openReportsPagination: paginationOptsValidator,
-    takedownListingsPagination: paginationOptsValidator,
-  },
-  handler: async (ctx, args) => {
-    const openReportsPage = await ctx.db.query('reports')
+async function moderationQueueItem(ctx: QueryCtx, report: Doc<'reports'>) {
+  const listing = report.listingId ? await ctx.db.get(report.listingId) : null
+  const actions = await ctx.db.query('moderationActions')
+    .withIndex('by_reportId_and_createdAt', (q) => q.eq('reportId', report._id))
+    .order('desc').take(1)
+  return {
+    id: report._id,
+    listingSlug: report.listingSlug,
+    listingStatus: listing?.status ?? 'unavailable',
+    reportStatus: report.status,
+    canRestore: listing?.status === 'takedown' && reportHasActiveTakedown(actions),
+    reason: report.reason,
+    detail: report.detail,
+    createdAt: report.createdAt,
+  }
+}
+
+/** Each Convex query may paginate only one database query. */
+export const listOpenModerationReports = internalQuery({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const page = await ctx.db.query('reports')
       .withIndex('by_status_and_createdAt', (q) => q.eq('status', 'open'))
-      .order('desc').paginate(args.openReportsPagination)
+      .order('desc').paginate(paginationOpts)
+    return { ...page, page: await Promise.all(page.page.map((report) => moderationQueueItem(ctx, report))) }
+  },
+})
+
+/** Server-only moderation queue. The HTTP boundary requires a separate secret. */
+export const listActiveModerationTakedowns = internalQuery({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
     const takenDownListingsPage = await ctx.db.query('publicItineraryListings')
       .withIndex('by_status_and_updatedAt', (q) => q.eq('status', 'takedown'))
-      .order('desc').paginate(args.takedownListingsPagination)
-    const activeTakedownReports: typeof openReportsPage.page = []
+      .order('desc').paginate(paginationOpts)
+    const activeTakedownReports: Doc<'reports'>[] = []
     for (const listing of takenDownListingsPage.page) {
       // Prefer the explicit active report. For listings taken down before
       // this field existed, recover from the newest takedown action (not the
@@ -274,31 +297,9 @@ export const listModerationQueue = internalQuery({
       const report = await ctx.db.get(reportId)
       if (report?.status === 'reviewed') activeTakedownReports.push(report)
     }
-    const hydrate = async (report: typeof openReportsPage.page[number]) => {
-      const listing = report.listingId ? await ctx.db.get(report.listingId) : null
-      const actions = await ctx.db.query('moderationActions')
-        .withIndex('by_reportId_and_createdAt', (q) => q.eq('reportId', report._id))
-        .order('desc').take(1)
-      return {
-        id: report._id,
-        listingSlug: report.listingSlug,
-        listingStatus: listing?.status ?? 'unavailable',
-        reportStatus: report.status,
-        canRestore: listing?.status === 'takedown' && reportHasActiveTakedown(actions),
-        reason: report.reason,
-        detail: report.detail,
-        createdAt: report.createdAt,
-      }
-    }
     return {
-      openReports: {
-        ...openReportsPage,
-        page: await Promise.all(openReportsPage.page.map(hydrate)),
-      },
-      activeTakedowns: {
-        ...takenDownListingsPage,
-        page: await Promise.all(activeTakedownReports.map(hydrate)),
-      },
+      ...takenDownListingsPage,
+      page: await Promise.all(activeTakedownReports.map((report) => moderationQueueItem(ctx, report))),
     }
   },
 })

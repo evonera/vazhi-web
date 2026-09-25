@@ -161,7 +161,11 @@ http.route({ path: '/api/admin/reports', method: 'GET', handler: httpAction(asyn
     return json({ message: 'Not found.' }, 404)
   }
   const pagination = parseModerationPagination(new URL(request.url))
-  return json(await ctx.runQuery(internal.listings.listModerationQueue, pagination))
+  const [openReports, activeTakedowns] = await Promise.all([
+    ctx.runQuery(internal.listings.listOpenModerationReports, { paginationOpts: pagination.openReportsPagination }),
+    ctx.runQuery(internal.listings.listActiveModerationTakedowns, { paginationOpts: pagination.takedownListingsPagination }),
+  ])
+  return json({ openReports, activeTakedowns })
 }) })
 
 http.route({ path: '/api/admin/reports', method: 'PATCH', handler: httpAction(async (ctx, request) => {
