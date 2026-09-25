@@ -4,7 +4,7 @@ import { durableRecommendationPlace } from '../src/lib/googlePlaceRetention'
 describe('Google place retention', () => {
   it('keeps only the Place ID from a Google recommendation', () => {
     const result = durableRecommendationPlace({
-      provider: 'google', providerPlaceID: 'ChIJtest', name: 'Provider name',
+      provider: 'google', providerPlaceID: '  ChIJtest  ', name: 'Provider name',
       address: 'Provider address', latitude: 9.9, longitude: 76.2, primaryType: 'restaurant',
     })
     expect(result).toEqual({ provider: 'google', providerPlaceID: 'ChIJtest' })
