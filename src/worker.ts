@@ -82,6 +82,35 @@ async function turnstilePasses(input: Record<string, unknown>, request: Request,
 
 type SignedPublicIngressPath = '/api/recommendations' | '/api/reports' | '/places/search'
 
+/** Fixed upstream only; never a caller-controlled proxy or a cached session. */
+async function forwardAuth(request: Request, env: Env) {
+  if (!env.CONVEX_HTTP_URL) return json({ message: 'Account access is not configured.' }, 503)
+  const url = new URL(request.url)
+  if (!['GET', 'POST', 'PATCH', 'OPTIONS'].includes(request.method)) return json({}, 405)
+  // Preserve Origin for Better Auth's CSRF validation. Reject browser writes
+  // from other sites before forwarding; native bearer requests have no Origin.
+  const origin = request.headers.get('origin')
+  if (origin && origin !== url.origin && origin !== 'https://appleid.apple.com') return json({}, 403)
+  const headers = new Headers()
+  for (const name of ['authorization', 'cookie', 'content-type', 'origin', 'accept']) {
+    const value = request.headers.get(name)
+    if (value) headers.set(name, value)
+  }
+  const body = ['GET', 'OPTIONS'].includes(request.method) ? undefined : await request.arrayBuffer()
+  if (body && body.byteLength > 32_768) return json({}, 413)
+  const upstream = new URL(url.pathname + url.search, env.CONVEX_HTTP_URL)
+  try {
+    const response = await fetch(upstream, { method: request.method, headers, body, redirect: 'manual', signal: AbortSignal.timeout(15_000) })
+    const resultHeaders = new Headers(response.headers)
+    resultHeaders.set('cache-control', 'no-store')
+    // Better Auth uses host-only cookies; the browser receives them from the
+    // Worker, so Safari does not need third-party cookie access.
+    resultHeaders.delete('access-control-allow-origin')
+    resultHeaders.delete('access-control-allow-credentials')
+    return new Response(response.body, { status: response.status, headers: resultHeaders })
+  } catch { return json({ message: 'Account access is temporarily unavailable.' }, 502) }
+}
+
 async function forwardSignedPublicIngress(
   path: SignedPublicIngressPath,
   request: Request,
@@ -213,6 +242,9 @@ function withOGCache(response: Response) {
 const worker = {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url)
+    if (url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/owner/') || url.pathname.startsWith('/api/native/')) {
+      return forwardAuth(request, env)
+    }
     if (request.method === 'POST' && url.pathname === '/api/recommendations') {
       return forwardSignedPublicIngress('/api/recommendations', request, env)
     }

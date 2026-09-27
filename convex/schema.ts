@@ -19,6 +19,14 @@ const place = v.object({
 
 export default defineSchema({
   ...betterAuthTables,
+  // Short-lived PKCE handoff. Never exposed through a public query or URL.
+  nativeAuthGrants: defineTable({
+    codeHash: v.string(),
+    codeChallenge: v.string(),
+    ownerAuthUserId: v.string(),
+    sessionToken: v.string(),
+    expiresAt: v.number(),
+  }).index('by_codeHash', ['codeHash']),
   journeys: defineTable({
     ownerAuthUserId: v.string(),
     localID: v.string(),
@@ -49,6 +57,7 @@ export default defineSchema({
     recommendationCount: v.number(),
     pendingRecommendationCount: v.number(),
     nextAcceptanceOrder: v.optional(v.number()),
+    inboxVersion: v.optional(v.number()),
     createdAt: v.number(),
     closedAt: v.optional(v.number()),
   })

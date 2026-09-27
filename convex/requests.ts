@@ -81,6 +81,18 @@ export const listMine = query({
   },
 })
 
+// Bounded live invalidation projection; private recommendation text is fetched
+// through the existing owner repository (including transient Places hydration).
+export const inboxRevision = query({
+  args: {},
+  handler: async (ctx) => {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const requests = await ctx.db.query('askRequests')
+      .withIndex('by_ownerAuthUserId_and_createdAt', q => q.eq('ownerAuthUserId', ownerAuthUserId)).order('desc').take(50)
+    return requests.map(request => ({ id: String(request._id), version: request.inboxVersion ?? 0, count: request.recommendationCount, status: request.status }))
+  },
+})
+
 /// A compact live projection for a Journey header/inbox badge. The query is
 /// owner-scoped so it is safe to subscribe to from the authenticated native
 /// client without exposing recommendation contents or contributor identity.
@@ -107,7 +119,7 @@ export const setStatus = mutation({
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const request = await ctx.db.get(args.requestId)
     if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Request not found.')
-    await ctx.db.patch(request._id, { status: args.status, closedAt: args.status === 'closed' ? Date.now() : undefined })
+    await ctx.db.patch(request._id, { status: args.status, closedAt: args.status === 'closed' ? Date.now() : undefined, inboxVersion: (request.inboxVersion ?? 0) + 1 })
     if (request.status !== args.status) {
       const journey = await ctx.db.get(request.journeyId)
       if (journey) await ctx.db.patch(journey._id, {
@@ -157,6 +169,7 @@ export const setRecommendationStatus = mutation({
       acceptedAt: args.status === 'accepted' && recommendation.status !== 'accepted' ? Date.now() : recommendation.acceptedAt,
       acceptanceOrder: acceptedOrder,
     })
+    await ctx.db.patch(request._id, { inboxVersion: (request.inboxVersion ?? 0) + 1 })
     if (recommendation.status === 'pending') {
       const journey = await ctx.db.get(request.journeyId)
       await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, request.pendingRecommendationCount - 1) })
@@ -217,7 +230,7 @@ export const submitPublic = internalMutation({
     const durablePlace = durableRecommendationPlace(args.place)
     await ctx.db.insert('recommendations', { askRequestId: request._id, anonymous: args.anonymous, contributorName: args.anonymous ? undefined : args.contributorName?.trim(), contributorHandle: args.anonymous ? undefined : args.contributorHandle?.trim(), category: args.category, place: durablePlace, note: args.note.trim(), referenceURL: args.referenceURL, status: 'pending', submittedAt: Date.now() })
     const journey = await ctx.db.get(request.journeyId)
-    await ctx.db.patch(request._id, { recommendationCount: request.recommendationCount + 1, pendingRecommendationCount: request.pendingRecommendationCount + 1 })
+    await ctx.db.patch(request._id, { recommendationCount: request.recommendationCount + 1, pendingRecommendationCount: request.pendingRecommendationCount + 1, inboxVersion: (request.inboxVersion ?? 0) + 1 })
     if (journey) await ctx.db.patch(journey._id, { recommendationCount: journey.recommendationCount + 1, pendingRecommendationCount: journey.pendingRecommendationCount + 1, updatedAt: Date.now() })
     return null
   },
@@ -361,6 +374,7 @@ export const setRecommendationStatusForOwner = internalMutation({
       acceptedAt: args.status === 'accepted' && recommendation.status !== 'accepted' ? Date.now() : recommendation.acceptedAt,
       acceptanceOrder: acceptedOrder,
     })
+    await ctx.db.patch(request._id, { inboxVersion: (request.inboxVersion ?? 0) + 1 })
     if (recommendation.status === 'pending') {
       const journey = await ctx.db.get(request.journeyId)
       await ctx.db.patch(request._id, { pendingRecommendationCount: Math.max(0, request.pendingRecommendationCount - 1) })
@@ -399,7 +413,7 @@ export const setRequestStatusForOwner = internalMutation({
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId)
     if (!request || request.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Request not found.')
-    await ctx.db.patch(request._id, { status: args.status, closedAt: args.status === 'closed' ? Date.now() : undefined })
+    await ctx.db.patch(request._id, { status: args.status, closedAt: args.status === 'closed' ? Date.now() : undefined, inboxVersion: (request.inboxVersion ?? 0) + 1 })
     if (request.status !== args.status) {
       const journey = await ctx.db.get(request.journeyId)
       if (journey) await ctx.db.patch(journey._id, {

@@ -2,9 +2,9 @@ import { FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { categoryLabel, type Place, type PublicAskRequest, type PublicListing, type PublicProfile, recommendationCategories, type RecommendationCategory } from './lib/contracts'
 import { publicAskAPI, publicGuideAPI } from './lib/api'
-import { getConvexAccessToken, startAppleSignIn } from './lib/auth'
+import { getConvexAccessToken } from './lib/auth'
+import { OwnerSignInPage, OwnerAccountControls } from './components/OwnerAuth'
 import { TurnstileField } from './components/TurnstileField'
-import { convexHTTPURL } from './lib/convexConfig'
 import { PrivacyContent, ReportContent, TermsContent } from './legal'
 
 const demoRequest: PublicAskRequest = { slug: 'demo-malaysia', prompt: 'Going to Malaysia in November — where should I go?', destination: 'Malaysia', journeyTitle: 'Malaysia in November', status: 'open' }
@@ -36,7 +36,7 @@ export function App() {
   if (window.location.pathname === '/privacy') return <LegalPage title="Privacy" content={<PrivacyContent />} />
   if (window.location.pathname === '/terms') return <LegalPage title="Terms" content={<TermsContent />} />
   if (window.location.pathname === '/report') return <LegalPage title="Report a link" content={<ReportContent />} />
-  if (window.location.pathname === '/sign-in') return <SignInPage />
+  if (window.location.pathname === '/sign-in') return <OwnerSignInPage />
   if (window.location.pathname === '/requests') return <RequestsPage />
   if (window.location.pathname === '/download') return <DownloadPage />
   return <LandingPage />
@@ -124,7 +124,32 @@ function PublicGuideStop({ stop }: { stop: PublicListing['stops'][number] }) {
 function UnavailableGuide() { return <main className="route-page route-page--centered"><h1>This guide is unavailable.</h1><p>It may be private, unpublished, or no longer available.</p><a href="/" className="button">Meet Vazhi</a></main> }
 
 function DownloadPage() { return <main className="download-page"><SiteHeader /><section><p className="section-label">VAZHI ON THE WAY</p><h1>Vazhi for iPhone is almost here.</h1><p>This page will link to the App Store when Vazhi for iPhone is released. You can try the public Ask the Way demo in your browser today.</p><a className="button" href="/ask/demo-malaysia">Try the public demo <span aria-hidden="true">↗</span></a><p className="platform-note">Android · coming soon</p></section><SiteFooter /></main> }
-function SignInPage() { const [error, setError] = useState<string | null>(null); return <main className="route-page route-page--centered"><p className="eyebrow">Owner access</p><h1>Sign in on Vazhi.</h1><p>Use Apple to manage links you created. Audience members never need an account.</p><button className="button" onClick={() => startAppleSignIn().catch((reason: Error) => setError(reason.message))}>Continue with Apple</button>{error && <p className="form-error" role="alert">{error}</p>}</main> }
 type OwnerRequest = { id: string; slug: string; prompt: string; destination: string; status: 'open' | 'closed'; recommendationCount: number }
-function RequestsPage() { const [requests, setRequests] = useState<OwnerRequest[]>([]); const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(true); async function load() { try { const token = await getConvexAccessToken(); const response = await fetch(`${convexHTTPURL}/api/owner/ask-requests`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error('Your requests are unavailable.'); setRequests(await response.json() as OwnerRequest[]) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Sign in to view your requests.') } finally { setLoading(false) } }; useEffect(() => { void load() }, []); async function closeRequest(requestID: string) { try { const token = await getConvexAccessToken(); const response = await fetch(`${convexHTTPURL}/api/owner/ask-requests`, { method: 'PATCH', headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ requestID, status: 'closed' }) }); if (!response.ok) throw new Error('The link could not be closed.'); setRequests((current) => current.map((item) => item.id === requestID ? { ...item, status: 'closed' } : item)) } catch (reason) { setError(reason instanceof Error ? reason.message : 'The link could not be closed.') } }; if (loading) return <main className="route-page route-page--centered"><p>Loading your requests…</p></main>; if (error && requests.length === 0) return <main className="route-page route-page--centered"><p className="eyebrow">Owner access</p><h1>Sign in to see your requests.</h1><p>{error}</p><a className="button" href="/sign-in">Continue with Apple</a></main>; return <main className="dashboard-page"><SiteHeader /><div className="dashboard-page__shell"><p className="eyebrow">Ask the Way</p><h1>Your requests</h1><p className="lede">Your iPhone remains the home for accepting recommendations and building a Path.</p>{error && <p className="form-error" role="alert">{error}</p>}<section className="request-list" aria-label="Your Ask the Way requests">{requests.length === 0 ? <p>No requests yet. Create one from a Journey in Vazhi.</p> : requests.map((request) => <article className="request-card" key={request.id}><p className="status"><span aria-hidden="true">{request.status === 'open' ? '●' : '○'}</span> {request.status}</p><h2>{request.destination}</h2><p>{request.prompt}</p><p className="fine-print">{request.recommendationCount} recommendation{request.recommendationCount === 1 ? '' : 's'} · <a href={`/ask/${request.slug}`}>Open public link</a></p>{request.status === 'open' && <button className="text-link" onClick={() => void closeRequest(request.id)}>Close link</button>}</article>)}</section></div><SiteFooter /></main> }
+function RequestsPage() {
+  const [requests, setRequests] = useState<OwnerRequest[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [closing, setClosing] = useState<string | null>(null)
+  useEffect(() => {
+    const abort = new AbortController()
+    getConvexAccessToken().then(token => fetch('/api/owner/ask-requests', { signal: abort.signal, headers: { Authorization: `Bearer ${token}` } }))
+      .then(async response => { if (!response.ok) throw new Error('Your requests are unavailable.'); setRequests(await response.json() as OwnerRequest[]) })
+      .catch(reason => { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : 'Sign in to view your requests.') })
+      .finally(() => { if (!abort.signal.aborted) setLoading(false) })
+    return () => abort.abort()
+  }, [])
+  async function closeRequest(requestID: string) {
+    setClosing(requestID); setError(null)
+    try {
+      const token = await getConvexAccessToken()
+      const response = await fetch('/api/owner/ask-requests', { method: 'PATCH', headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ requestID, status: 'closed' }) })
+      if (!response.ok) throw new Error('The link could not be closed.')
+      setRequests(current => current.map(item => item.id === requestID ? { ...item, status: 'closed' } : item))
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The link could not be closed.') }
+    finally { setClosing(null) }
+  }
+  if (loading) return <main className="route-page route-page--centered"><p role="status">Loading your requests…</p></main>
+  if (error && requests.length === 0) return <main className="route-page route-page--centered"><h1>Sign in to see your requests.</h1><p role="alert">{error}</p><a className="button" href="/sign-in">Sign in</a></main>
+  return <main className="dashboard-page"><SiteHeader /><div className="dashboard-page__shell"><p className="eyebrow">Ask the Way</p><h1>Your requests</h1><OwnerAccountControls /><p className="lede">Your iPhone remains the home for accepting recommendations and building a Path.</p>{error && <p className="form-error" role="alert">{error}</p>}<section className="request-list" aria-label="Your Ask the Way requests">{requests.length === 0 ? <p>No requests yet. Create one from a Journey in Vazhi.</p> : requests.map(request => <article className="request-card" key={request.id}><p className="status">{request.status}</p><h2>{request.destination}</h2><p>{request.prompt}</p><p className="fine-print">{request.recommendationCount} recommendations · <a href={`/ask/${request.slug}`}>Open public link</a></p>{request.status === 'open' && <button className="text-link" disabled={closing !== null} onClick={() => void closeRequest(request.id)}>{closing === request.id ? 'Closing…' : 'Close link'}</button>}</article>)}</section></div><SiteFooter /></main>
+}
 function LegalPage({ title, content }: { title: string; content: ReactNode }) { return <main className="legal-page"><SiteHeader /><section><p className="section-label">VAZHI TRUST</p><h1>{title}</h1>{content}</section><SiteFooter /></main> }

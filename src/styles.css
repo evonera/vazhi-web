@@ -32,3 +32,23 @@
   .hero-copy h1 { max-width: none; font-size: clamp(2.6rem, 4.8vw, 4.4rem); }
 }
 .provider-attribution { color: #45413f; font-size: .75rem; font-weight: 700; white-space: nowrap; }
+/* Account flows use Better Auth UI hooks, with Vazhi's own accessible surfaces. */
+.owner-auth { width: min(100%, 36rem); margin-inline: auto; }
+.owner-auth h1 { font-size: clamp(2rem, 6vw, 3.4rem); }
+.owner-auth__form { width: 100%; text-align: left; }
+.owner-auth__form fieldset { display: grid; gap: 1rem; padding: 0; border: 0; min-width: 0; }
+.owner-auth__form label { display: grid; gap: .5rem; }
+.owner-auth__form input { min-height: 48px; border: 1px solid #aaa; border-radius: 14px; padding: .75rem; width: 100%; background: #fff; color: #161616; }
+.owner-auth__providers { display: grid; gap: .75rem; width: 100%; margin-block: 1.5rem; }
+.owner-auth__links, .owner-auth__account { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+.owner-auth__account p { flex-basis: 100%; }
+.owner-auth button:disabled { opacity: .65; cursor: not-allowed; }
+.owner-auth :focus-visible { outline: 3px solid #1268bd; outline-offset: 4px; }
+.owner-auth .text-link, .owner-auth__account .text-link { min-height: 44px; }
+.owner-auth h1 { font-family: Georgia, "Times New Roman", serif; letter-spacing: -.025em; line-height: 1.12; font-weight: 600; }
+.owner-auth .eyebrow { color: #444; }
+.owner-auth p { line-height: 1.5; font-weight: 400; }
+.owner-auth .button { width: 100%; min-height: 52px; padding: 12px 16px; border-radius: 16px; background: #202126; color: #fff; flex-direction: column; gap: 4px; }
+.owner-auth .button .fine-print { color: inherit; font-weight: 400; }
+.owner-auth .fine-print { margin: .5rem 0 0; }
+.owner-auth .button .fine-print { margin: 0; }

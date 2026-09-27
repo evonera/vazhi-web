@@ -13,10 +13,22 @@ import { developmentIngressSalt, opaqueRateLimitKey } from '../src/lib/publicIng
 import { verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
 import { parseCloudAISuggestionRequest, readBoundedAIRequestBody } from './aiRequestValidation'
 import { generateSuggestionsForOwner } from './ai'
+import { authCapabilities } from './betterAuth/configuration'
+import { registerNativeAuth } from './nativeAuthHTTP'
 
 const http = httpRouter()
 
 authComponent.registerRoutes(http, createAuth, { cors: true })
+registerNativeAuth(http)
+
+http.route({ path: '/api/owner/auth-capabilities', method: 'GET', handler: httpAction(async () => json(authCapabilities())) })
+
+// Native clients use bearer JWTs, and browser clients may call Convex directly
+// during development. Authorization/PATCH need an explicit preflight response.
+http.route({ pathPrefix: '/api/owner/', method: 'OPTIONS', handler: httpAction(async () => new Response(null, {
+  status: 204,
+  headers: { 'access-control-allow-origin': process.env.SITE_URL ?? '', 'access-control-allow-methods': 'GET, POST, PATCH, OPTIONS', 'access-control-allow-headers': 'Authorization, Content-Type', 'vary': 'Origin', 'cache-control': 'no-store' },
+})) })
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'access-control-allow-origin': process.env.SITE_URL ?? '', 'vary': 'Origin' } })
