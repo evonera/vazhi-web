@@ -6,8 +6,27 @@ test('a visitor can submit a named recommendation through a public request', asy
   await page.getByLabel('Find a place').fill('Village Park')
   await page.getByRole('button', { name: /Village Park Restaurant/ }).click()
   await page.getByLabel('Why is it worth it?').fill('Order the nasi lemak and go early.')
-  await page.getByRole('button', { name: 'Add to their path' }).click()
-  await expect(page.getByRole('heading', { name: 'That’s on their path.' })).toBeVisible()
+  await page.getByRole('button', { name: 'Send recommendation' }).click()
+  await expect(page.getByRole('heading', { name: 'Recommendation sent.' })).toBeVisible()
+})
+
+test('manual public-place coordinates remain usable when search is unavailable', async ({ page }) => {
+  await page.route('**/api/ask?slug=offline-places', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ slug: 'offline-places', prompt: 'Where should I go?', destination: 'Malaysia', status: 'open' }),
+  }))
+  await page.route('**/places/search', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }))
+  await page.goto('/ask/offline-places')
+  await page.getByLabel('Find a place').fill('Village Park')
+  await expect(page.getByRole('alert').filter({ hasText: 'Place search is unavailable' })).toBeVisible()
+  await page.getByText('Can’t find the place? Add a manual pin').click()
+  await page.getByLabel('Place name').fill('Village Park Restaurant')
+  await page.getByLabel('Latitude').fill('3.136')
+  await page.getByLabel('Longitude').fill('101.619')
+  await page.getByRole('button', { name: 'Use this pin' }).click()
+  await expect(page.getByLabel('Find a place')).toHaveValue('Village Park Restaurant')
+  await expect(page.getByRole('alert').filter({ hasText: 'Place search is unavailable' })).toHaveCount(0)
 })
 
 test('the campaign and public form stay usable at 320px', async ({ page }) => {
@@ -56,7 +75,7 @@ test('prototype-shaped slugs are never treated as built-in demos', async ({ page
   for (const slug of ['constructor', 'toString', '__proto__']) {
     await page.goto(`/ask/${slug}`)
     await expect(page.getByRole('heading', { name: 'This request is unavailable.' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Add to their path/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Send recommendation/i })).toHaveCount(0)
   }
   // React development mode can replay effects; every prototype-shaped slug
   // must still leave the demo allowlist and attempt the public API.
