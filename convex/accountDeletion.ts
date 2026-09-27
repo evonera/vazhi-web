@@ -11,7 +11,7 @@ const phases = [
   'recommendations', 'pathStops', 'privateRouteStops', 'routeSnapshots',
   'askRequests', 'paths', 'publicItineraryListings', 'journeys',
   'syncedMoments', 'syncedJourneys', 'syncedOutboxJobs', 'aiUsageEvents',
-  'profileHandleAliases', 'profiles',
+  'profileHandleAliases', 'profiles', 'nativeAuthGrants',
 ] as const
 
 type Phase = typeof phases[number]
