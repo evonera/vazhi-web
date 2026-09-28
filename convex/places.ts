@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { internalAction } from './_generated/server'
-import { buildPlaceAutocompleteInput, buildPlaceSearchQuery } from './mapsValidation'
+import { buildGoogleAutocompleteBody, buildPlaceSearchQuery, GOOGLE_AUTOCOMPLETE_FIELD_MASK, GOOGLE_PLACE_DETAILS_FIELD_MASK, googlePlaceDetailsURL } from './mapsValidation'
 
 type GooglePlace = {
   id?: string
@@ -39,7 +39,7 @@ export const search = internalAction({
 // Autocomplete is deliberately a suggestion list, not a place record. The app
 // follows it with `details`, which is the only path that normalizes a place.
 export const autocomplete = internalAction({
-  args: { input: v.string(), destination: v.optional(v.string()) },
+  args: { input: v.string(), destination: v.optional(v.string()), sessionToken: v.string(), scope: v.union(v.literal('places'), v.literal('regions')) },
   handler: async (_ctx, args) => {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY
     const input = args.input.trim()
@@ -50,15 +50,14 @@ export const autocomplete = internalAction({
     // Places Autocomplete has no text-destination bias field. Include the
     // Journey destination as query context instead of passing a bogus cursor
     // offset that has no spatial meaning.
-    const contextualInput = buildPlaceAutocompleteInput(input, destination)
     const response = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'X-Goog-Api-Key': apiKey,
-        'X-Goog-FieldMask': 'suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat',
+        'X-Goog-FieldMask': GOOGLE_AUTOCOMPLETE_FIELD_MASK,
       },
-      body: JSON.stringify({ input: contextualInput }),
+      body: JSON.stringify(buildGoogleAutocompleteBody(input, destination, args.sessionToken, args.scope)),
     })
     if (!response.ok) throw new ConvexError('Place search is temporarily unavailable.')
     const body = await response.json() as { suggestions?: Array<{ placePrediction?: { placeId?: string; text?: { text?: string }; structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } } } }> }
@@ -70,15 +69,16 @@ export const autocomplete = internalAction({
 })
 
 export const details = internalAction({
-  args: { placeID: v.string() },
+  args: { placeID: v.string(), sessionToken: v.optional(v.string()) },
   handler: async (_ctx, args) => {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY
     if (args.placeID.trim().length < 1 || args.placeID.length > 255) throw new ConvexError('A valid Google Place ID is required.')
     if (!apiKey) throw new ConvexError('Place search is not configured.')
-    const response = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(args.placeID)}`, {
+    const url = googlePlaceDetailsURL(args.placeID, args.sessionToken)
+    const response = await fetch(url, {
       headers: {
         'X-Goog-Api-Key': apiKey,
-        'X-Goog-FieldMask': 'id,displayName,formattedAddress,location,primaryType',
+        'X-Goog-FieldMask': GOOGLE_PLACE_DETAILS_FIELD_MASK,
       },
     })
     if (!response.ok) throw new ConvexError('Place details are temporarily unavailable.')

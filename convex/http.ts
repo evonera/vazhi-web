@@ -8,6 +8,8 @@ import { parseModerationPagination } from './moderationPagination'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { parseNativePlaceSearchInput } from '../src/lib/nativePlaceSearch'
+import { parseNativePlaceAutocompleteInput, validPlaceSessionToken } from '../src/lib/nativePlaceAutocomplete'
+import { readBoundedRequestBody } from '../src/lib/boundedRequestBody'
 import { toNativePlace } from '../src/lib/nativePlaceProjection'
 import { developmentIngressSalt, opaqueRateLimitKey } from '../src/lib/publicIngress'
 import { verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
@@ -396,6 +398,38 @@ http.route({ path: '/api/ai/suggestions', method: 'POST', handler: httpAction(as
 
 // Native owner search is authenticated and quota-limited before a billable
 // Google request. Signed-out clients keep using Apple search or a manual pin.
+http.route({ path: '/api/owner/places/autocomplete', method: 'POST', handler: httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
+  try {
+    ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+  } catch {
+    return json({ message: 'Sign in to search Google places.' }, 401)
+  }
+  let body: unknown
+  try {
+    const raw = await readBoundedRequestBody(request, 2048)
+    if (raw === null) return json({ message: 'Place search input is too long.' }, 413)
+    body = JSON.parse(raw)
+  } catch {
+    return json({ message: 'Enter a place to search.' }, 400)
+  }
+  const input = parseNativePlaceAutocompleteInput(body)
+  if (!input) return json({ message: 'Enter at least two characters to search.' }, 400)
+  try {
+    await ctx.runMutation(internal.placeLimits.consumeOwnerSearch, { ownerAuthUserId })
+  } catch {
+    return json({ message: 'Place search limit reached. Try again later.' }, 429)
+  }
+  try {
+    const suggestions = await ctx.runAction(internal.places.autocomplete, input)
+    return new Response(JSON.stringify(suggestions), {
+      headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+    })
+  } catch {
+    return json({ message: 'Place suggestions are temporarily unavailable.' }, 503)
+  }
+}) })
+
 http.route({ path: '/api/owner/places/search', method: 'POST', handler: httpAction(async (ctx, request) => {
   let ownerAuthUserId: string
   try {
@@ -437,10 +471,12 @@ http.route({ path: '/api/owner/places/details', method: 'GET', handler: httpActi
     return json({ message: 'Sign in to view this place.' }, 401)
   }
   const placeID = new URL(request.url).searchParams.get('placeID') ?? ''
+  const sessionToken = new URL(request.url).searchParams.get('sessionToken')
   if (!placeID || placeID.length > 255) return json({ message: 'Invalid Place ID.' }, 400)
+  if (sessionToken !== null && !validPlaceSessionToken(sessionToken)) return json({ message: 'Invalid place session.' }, 400)
   try {
     await ctx.runMutation(internal.placeLimits.consumeOwnerSearch, { ownerAuthUserId })
-    const place = await ctx.runAction(internal.places.details, { placeID })
+    const place = await ctx.runAction(internal.places.details, { placeID, sessionToken: sessionToken ?? undefined })
     return new Response(JSON.stringify(toNativePlace(place)), {
       headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
     })
