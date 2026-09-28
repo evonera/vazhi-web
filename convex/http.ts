@@ -15,6 +15,8 @@ import { parseCloudAISuggestionRequest, readBoundedAIRequestBody } from './aiReq
 import { generateSuggestionsForOwner } from './ai'
 import { authCapabilities } from './betterAuth/configuration'
 import { registerNativeAuth } from './nativeAuthHTTP'
+import type { Id } from './_generated/dataModel'
+import { MAX_REEL_VIDEO_BYTES, parseImportBody, readReelImportBody, reelVideoPreflight, safeIdempotencyKey, safeImportId, safeSourceURL } from '../src/lib/reelImportHTTP'
 
 const http = httpRouter()
 
@@ -27,11 +29,15 @@ http.route({ path: '/api/owner/auth-capabilities', method: 'GET', handler: httpA
 // during development. Authorization/PATCH need an explicit preflight response.
 http.route({ pathPrefix: '/api/owner/', method: 'OPTIONS', handler: httpAction(async () => new Response(null, {
   status: 204,
-  headers: { 'access-control-allow-origin': process.env.SITE_URL ?? '', 'access-control-allow-methods': 'GET, POST, PATCH, OPTIONS', 'access-control-allow-headers': 'Authorization, Content-Type', 'vary': 'Origin', 'cache-control': 'no-store' },
+  headers: { 'access-control-allow-origin': process.env.SITE_URL ?? '', 'access-control-allow-methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS', 'access-control-allow-headers': 'Authorization, Content-Type', 'vary': 'Origin', 'cache-control': 'no-store' },
 })) })
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'access-control-allow-origin': process.env.SITE_URL ?? '', 'vary': 'Origin' } })
+}
+
+function privateJson(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': process.env.SITE_URL ?? '', 'vary': 'Origin' } })
 }
 
 function escapeXML(value: string) {
@@ -446,6 +452,149 @@ http.route({ path: '/api/owner/places/details', method: 'GET', handler: httpActi
     })
   } catch {
     return json({ message: 'Place details are temporarily unavailable.' }, 503)
+  }
+}) })
+
+// Reel imports are private drafts. Native clients never receive the Modal
+// ingress URL or its credential; every owner endpoint authenticates first.
+http.route({ path: '/api/owner/imports', method: 'POST', handler: httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
+  try { ownerAuthUserId = await requireOwnerAuthUserId(ctx) }
+  catch { return privateJson({ message: 'Sign in to import a reel.' }, 401) }
+  const raw = await readReelImportBody(request)
+  const input = raw === null ? null : parseImportBody(raw)
+  const idempotencyKey = safeIdempotencyKey(input?.idempotencyKey)
+  const sourceURL = safeSourceURL(input?.sourceURL, true)
+  if (!idempotencyKey || !sourceURL) return privateJson({ message: 'Provide a valid reel link and request ID.' }, 400)
+  try {
+    const result = await ctx.runMutation(internal.imports.createLinkForOwner, { ownerAuthUserId, idempotencyKey, sourceURL })
+    return privateJson({ id: result.id }, result.created ? 201 : 200)
+  } catch {
+    return privateJson({ message: 'This link could not be imported. Check the URL or your daily limit.' }, 400)
+  }
+}) })
+
+const ownerVideoUpload = httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
+  try { ownerAuthUserId = await requireOwnerAuthUserId(ctx) }
+  catch { return privateJson({ message: 'Sign in to upload a clip.' }, 401) }
+  const url = new URL(request.url)
+  const importId = safeImportId(url.searchParams.get('importId'))
+  const idempotencyKey = safeIdempotencyKey(url.searchParams.get('idempotencyKey'))
+  const sourceURL = safeSourceURL(url.searchParams.get('sourceURL') ?? undefined)
+  if (Boolean(importId) === Boolean(idempotencyKey) || sourceURL === null) {
+    return privateJson({ message: 'Invalid upload request.' }, 400)
+  }
+  const preflight = reelVideoPreflight(request.headers)
+  if (!preflight.ok) return privateJson({ message: preflight.message }, preflight.status)
+  let reservation: { id: Id<'reelImports'>; upload: boolean; created: boolean } | null
+  try {
+    reservation = await ctx.runMutation(internal.imports.reserveVideoUploadForOwner, {
+      ownerAuthUserId,
+      importId: importId ? importId as Id<'reelImports'> : undefined,
+      idempotencyKey: idempotencyKey ?? undefined,
+      sourceURL,
+    })
+  } catch {
+    return privateJson({ message: 'This clip could not be queued. Check your daily limit or try a new import.' }, 400)
+  }
+  if (!reservation) return privateJson({ message: 'Import not found.' }, 404)
+  if (!reservation.upload) return privateJson({ id: reservation.id }, 200)
+  let blob: Blob
+  try {
+    blob = await request.blob()
+  } catch {
+    return privateJson({ message: 'The video upload was interrupted.' }, 400)
+  }
+  if (blob.size === 0 || blob.size > MAX_REEL_VIDEO_BYTES) {
+    return privateJson({ message: 'Choose a video under 20 MB.' }, 413)
+  }
+  let storageId: Id<'_storage'> | undefined
+  try {
+    storageId = await ctx.storage.store(blob)
+    const result = await ctx.runMutation(internal.imports.completeUploadForOwner, {
+      ownerAuthUserId, importId: reservation.id, storageId,
+    })
+    if (!result) throw new Error('Import reservation expired.')
+    return privateJson({ id: result.id }, reservation.created ? 201 : 200)
+  } catch {
+    if (storageId) await ctx.storage.delete(storageId)
+    return privateJson({ message: 'Upload could not be completed. Please retry.' }, 503)
+  }
+})
+
+http.route({ path: '/api/owner/imports/upload', method: 'POST', handler: ownerVideoUpload })
+
+http.route({ path: '/api/owner/imports', method: 'GET', handler: httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
+  try { ownerAuthUserId = await requireOwnerAuthUserId(ctx) }
+  catch { return privateJson({ message: 'Sign in to view imports.' }, 401) }
+  const requestedId = new URL(request.url).searchParams.get('importId')
+  if (requestedId !== null) {
+    const importId = safeImportId(requestedId)
+    if (!importId) return privateJson({ message: 'Import not found.' }, 404)
+    try {
+      const record = await ctx.runQuery(internal.imports.getForOwner, { ownerAuthUserId, importId: importId as Id<'reelImports'> })
+      if (!record) return privateJson({ message: 'Import not found.' }, 404)
+      // Polling must not trigger billable Places Details requests. The owner
+      // explicitly resolves a selected Place ID through the quota-limited
+      // /api/owner/places/details endpoint when reviewing a candidate.
+      return privateJson({
+        ...record,
+        candidates: record.candidates.map((candidate) => ({ ...candidate, places: [] })),
+      })
+    } catch {
+      return privateJson({ message: 'Import not found.' }, 404)
+    }
+  }
+  const records = await ctx.runQuery(internal.imports.listForOwner, { ownerAuthUserId })
+  return privateJson(records.map((record) => ({
+    ...record, candidates: record.candidates.map((candidate) => ({ ...candidate, places: [] })),
+  })))
+}) })
+
+http.route({ path: '/api/owner/imports', method: 'DELETE', handler: httpAction(async (ctx, request) => {
+  let ownerAuthUserId: string
+  try { ownerAuthUserId = await requireOwnerAuthUserId(ctx) }
+  catch { return privateJson({ message: 'Sign in to remove an import.' }, 401) }
+  const raw = await readReelImportBody(request)
+  const input = raw === null ? null : parseImportBody(raw)
+  const importId = safeImportId(input?.importId)
+  if (!importId) return privateJson({ message: 'Import not found.' }, 404)
+  try {
+    const deleted = await ctx.runMutation(internal.imports.deleteForOwner, {
+      ownerAuthUserId, importId: importId as Id<'reelImports'>,
+    })
+    return deleted ? privateJson({ deleted: true }) : privateJson({ message: 'Import not found.' }, 404)
+  } catch {
+    return privateJson({ message: 'Import not found.' }, 404)
+  }
+}) })
+
+http.route({ path: '/api/internal/imports/callback', method: 'POST', handler: httpAction(async (ctx, request) => {
+  const secret = process.env.MODAL_IMPORT_CALLBACK_SECRET
+  if (!secret) return privateJson({ message: 'Callback unavailable.' }, 503)
+  const raw = await readReelImportBody(request)
+  if (raw === null || !await verifyEdgeIngressSignature({
+    rawBody: raw,
+    signatureHeader: request.headers.get('x-vazhi-edge-signature'),
+    signingSecret: secret,
+  })) return privateJson({ message: 'Invalid callback.' }, 401)
+  const input = parseImportBody(raw)
+  const importId = safeImportId(input?.importId)
+  if (!input || !importId) return privateJson({ message: 'Invalid callback.' }, 400)
+  try {
+    await ctx.runMutation(internal.imports.acceptCallback, {
+      importId: importId as Id<'reelImports'>,
+      status: input.status,
+      failureCode: input.failureCode,
+      mediaSignals: input.mediaSignals,
+      warningCodes: input.warnings,
+      candidates: input.candidates,
+    } as never)
+    return privateJson({ accepted: true })
+  } catch {
+    return privateJson({ message: 'Invalid callback.' }, 400)
   }
 }) })
 

@@ -17,6 +17,7 @@ import type * as aiResponseValidation from "../aiResponseValidation.js";
 import type * as askProjections from "../askProjections.js";
 import type * as betterAuth_auth from "../betterAuth/auth.js";
 import type * as http from "../http.js";
+import type * as imports from "../imports.js";
 import type * as nativeAuth from "../nativeAuth.js";
 import type * as nativeAuthHTTP from "../nativeAuthHTTP.js";
 import type * as betterAuth_configuration from "../betterAuth/configuration.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   askProjections: typeof askProjections;
   "betterAuth/auth": typeof betterAuth_auth;
   http: typeof http;
+  imports: typeof imports;
   nativeAuth: typeof nativeAuth;
   nativeAuthHTTP: typeof nativeAuthHTTP;
   "betterAuth/configuration": typeof betterAuth_configuration;
