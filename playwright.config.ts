@@ -7,6 +7,6 @@ export default defineConfig({
     command: 'npm run dev -- --port 4185',
     port: 4185,
     reuseExistingServer: !process.env.CI,
-    env: { VITE_CONVEX_HTTP_URL: 'http://127.0.0.1:8788' },
+    env: { VITE_CONVEX_HTTP_URL: 'http://127.0.0.1:8788', VITE_TURNSTILE_SITE_KEY: 'test-site-key' },
   },
 })

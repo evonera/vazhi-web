@@ -137,7 +137,7 @@ export const purgeGooglePlaceDetails = internalMutation({
 
     for (const moment of page.page) {
       if (moment.placeSource?.toLowerCase() !== 'google') continue
-      await ctx.db.patch('syncedMoments', moment._id, {
+      await ctx.db.patch(moment._id, {
         latitude: undefined,
         longitude: undefined,
         placeName: undefined,

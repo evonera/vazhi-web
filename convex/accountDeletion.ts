@@ -12,7 +12,7 @@ const phases = [
   'askRequests', 'paths', 'publicItineraryListings', 'journeys',
   'syncedMoments', 'syncedJourneys', 'syncedOutboxJobs', 'aiUsageEvents',
   // Append new phases: active deletion jobs persist the numeric phase index.
-  'profileHandleAliases', 'profiles', 'nativeAuthGrants', 'reelImports',
+  'profileHandleAliases', 'profiles', 'nativeAuthGrants', 'reelImports', 'recommendationSubmissions',
 ] as const
 
 type Phase = typeof phases[number]

@@ -116,6 +116,7 @@ http.route({ path: '/api/recommendations', method: 'POST', handler: httpAction(a
     await ctx.runMutation(internal.requests.submitPublic, {
       slug: typeof input.slug === 'string' ? input.slug : '',
       rateLimitKey: await requestBucket(request),
+      clientSubmissionID: typeof input.clientSubmissionID === 'string' ? input.clientSubmissionID : undefined,
       anonymous: input.anonymous === true,
       contributorName: typeof input.contributorName === 'string' ? input.contributorName : undefined,
       contributorHandle: typeof input.contributorHandle === 'string' ? input.contributorHandle : undefined,

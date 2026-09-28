@@ -39,6 +39,23 @@ test('account deletion removes owned descendants and leaves another account inta
       category: 'food', place: { provider: 'google', providerPlaceID: 'place-123' },
       note: 'Try it', status: 'pending', submittedAt: 1,
     })
+    await ctx.db.insert('recommendationSubmissions', {
+      ownerAuthUserId: ownerID, askRequestId: request,
+      submissionIDHash: 'owned-receipt', contentHash: 'owned-content', createdAt: 1,
+    })
+    const otherJourney = await ctx.db.query('journeys')
+      .withIndex('by_ownerAuthUserId_and_localID', q => q.eq('ownerAuthUserId', otherID).eq('localID', 'other'))
+      .unique()
+    if (!otherJourney) throw new Error('Expected the other journey')
+    const otherRequest = await ctx.db.insert('askRequests', {
+      ownerAuthUserId: otherID, journeyId: otherJourney._id, slug: 'other-ask',
+      prompt: 'Where to go?', destination: 'Penang', status: 'open',
+      recommendationCount: 0, pendingRecommendationCount: 0, createdAt: 1,
+    })
+    await ctx.db.insert('recommendationSubmissions', {
+      ownerAuthUserId: otherID, askRequestId: otherRequest,
+      submissionIDHash: 'other-receipt', contentHash: 'other-content', createdAt: 1,
+    })
     const path = await ctx.db.insert('paths', {
       ownerAuthUserId: ownerID, journeyId: journey, localPathID: 'path-1',
       title: 'Path', status: 'draft', createdAt: 1,
@@ -97,17 +114,20 @@ test('account deletion removes owned descendants and leaves another account inta
     moderationActions: await ctx.db.query('moderationActions').collect(),
     profiles: await ctx.db.query('profiles').collect(),
     reelImports: await ctx.db.query('reelImports').collect(),
+    recommendationSubmissions: await ctx.db.query('recommendationSubmissions').collect(),
     ownedMedia: await ctx.db.system.get('_storage', ownedMediaID),
     otherMedia: await ctx.db.system.get('_storage', otherMediaID),
     jobs: await ctx.db.query('accountDeletionJobs').collect(),
   }))
   expect(remaining.journeys.map((row) => row.localID)).toEqual(['other'])
+  expect(remaining.requests.map((row) => row.slug)).toEqual(['other-ask'])
   expect(remaining.profiles).toHaveLength(1)
   expect(remaining.profiles[0].ownerAuthUserId).not.toBe(ownerID)
   expect(remaining.reelImports.map((row) => row.idempotencyKey)).toEqual(['other-import'])
+  expect(remaining.recommendationSubmissions.map((row) => row.submissionIDHash)).toEqual(['other-receipt'])
   expect(remaining.ownedMedia).toBeNull()
   expect(remaining.otherMedia).not.toBeNull()
-  for (const table of ['requests', 'recommendations', 'paths', 'pathStops', 'listings', 'versions', 'reports', 'moderationActions', 'jobs'] as const) {
+  for (const table of ['recommendations', 'paths', 'pathStops', 'listings', 'versions', 'reports', 'moderationActions', 'jobs'] as const) {
     expect(remaining[table]).toHaveLength(0)
   }
 })
