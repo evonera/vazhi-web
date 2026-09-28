@@ -60,20 +60,29 @@ export const createLinkForOwner = internalMutation({
   },
 })
 
-// A reservation precedes the authenticated HTTP body upload. The video is
-// stored and attached in that same HTTP action; no unbounded Convex upload URL
-// is ever exposed to the client.
-export const reserveVideoUploadForOwner = internalMutation({
+// Commit only an already stored, validated video. This transaction checks
+// ownership, retry and daily limits before attaching media and dispatching.
+// Rejected HTTP bodies never consume a retry or a rate-limit token.
+export const commitVideoUploadForOwner = internalMutation({
   args: {
     ownerAuthUserId: v.string(),
     idempotencyKey: v.optional(v.string()),
     sourceURL: v.optional(v.string()),
     importId: v.optional(v.id('reelImports')),
+    storageId: v.id('_storage'),
+    contentType: v.string(),
   },
   handler: async (ctx, args) => {
     if (Boolean(args.importId) === Boolean(args.idempotencyKey)) throw new ConvexError('Invalid upload request.')
     if (args.idempotencyKey && !validIdempotencyKey(args.idempotencyKey)) throw new ConvexError('Invalid import request.')
     const sourceURL = args.sourceURL ? canonicalInstagramURL(args.sourceURL) : undefined
+    const metadata = await ctx.db.system.get('_storage', args.storageId)
+    const allowedTypes = new Set(['video/mp4', 'video/quicktime', 'video/x-m4v'])
+    if (!metadata || metadata.size === 0 || metadata.size > MAX_REEL_VIDEO_BYTES ||
+        !allowedTypes.has(args.contentType) ||
+        (metadata.contentType && metadata.contentType !== args.contentType)) {
+      throw new ConvexError('Choose a video under 20 MB in MP4 or QuickTime format.')
+    }
     const existing = args.importId
       ? await ctx.db.get(args.importId)
       : await ctx.db.query('reelImports')
@@ -82,18 +91,22 @@ export const reserveVideoUploadForOwner = internalMutation({
     if (existing) {
       if (existing.ownerAuthUserId !== args.ownerAuthUserId) return null
       if (!['needs_media', 'awaiting_upload', 'failed'].includes(existing.status)) {
-        return { id: existing._id, status: existing.status, upload: false, created: false }
+        return { id: existing._id, status: existing.status, accepted: false, created: false }
       }
       if ((existing.uploadAttemptCount ?? 0) >= MAX_UPLOAD_ATTEMPTS_PER_IMPORT) {
         throw new ConvexError('Start a new import to retry this video upload.')
       }
       await applyUploadAttemptLimit(ctx, args.ownerAuthUserId)
+      if (existing.mediaStorageId && existing.mediaStorageId !== args.storageId) {
+        await ctx.storage.delete(existing.mediaStorageId)
+      }
       await ctx.db.patch(existing._id, {
-        status: 'awaiting_upload', failureCode: undefined,
+        status: 'queued', failureCode: undefined, mediaStorageId: args.storageId,
         uploadAttemptCount: (existing.uploadAttemptCount ?? 0) + 1,
         updatedAt: Date.now(),
       })
-      return { id: existing._id, status: 'awaiting_upload' as const, upload: true, created: false }
+      await ctx.scheduler.runAfter(0, internal.imports.dispatch, { importId: existing._id })
+      return { id: existing._id, status: 'queued' as const, accepted: true, created: false }
     }
     if (args.importId || !args.idempotencyKey) return null
     await applyOwnerLimit(ctx, args.ownerAuthUserId)
@@ -103,33 +116,14 @@ export const reserveVideoUploadForOwner = internalMutation({
       ownerAuthUserId: args.ownerAuthUserId,
       idempotencyKey: args.idempotencyKey,
       sourceURL,
-      status: 'awaiting_upload',
+      mediaStorageId: args.storageId,
+      status: 'queued',
       uploadAttemptCount: 1,
       createdAt: now,
       updatedAt: now,
     })
-    return { id, status: 'awaiting_upload' as const, upload: true, created: true }
-  },
-})
-
-export const completeUploadForOwner = internalMutation({
-  args: { ownerAuthUserId: v.string(), importId: v.id('reelImports'), storageId: v.id('_storage') },
-  handler: async (ctx, args) => {
-    const record = await ctx.db.get(args.importId)
-    if (!record || record.ownerAuthUserId !== args.ownerAuthUserId) return null
-    if (record.status !== 'awaiting_upload') throw new ConvexError('This import is no longer waiting for a video.')
-    const metadata = await ctx.db.system.get('_storage', args.storageId)
-    const allowedTypes = new Set(['video/mp4', 'video/quicktime', 'video/x-m4v'])
-    if (!metadata || metadata.size > MAX_REEL_VIDEO_BYTES || !metadata.contentType || !allowedTypes.has(metadata.contentType)) {
-      throw new ConvexError('Choose a video under 20 MB in MP4 or QuickTime format.')
-    }
-    const now = Date.now()
-    await ctx.db.patch(record._id, {
-      mediaStorageId: args.storageId, status: 'queued',
-      updatedAt: now,
-    })
-    await ctx.scheduler.runAfter(0, internal.imports.dispatch, { importId: record._id })
-    return { id: record._id, status: 'queued' as const }
+    await ctx.scheduler.runAfter(0, internal.imports.dispatch, { importId: id })
+    return { id, status: 'queued' as const, accepted: true, created: true }
   },
 })
 

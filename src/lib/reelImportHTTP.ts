@@ -15,6 +15,32 @@ export function reelVideoPreflight(headers: Headers):
   return { ok: true, contentType }
 }
 
+/** Bound chunked uploads too; a missing or false Content-Length cannot bypass the cap. */
+export async function readReelVideoBody(request: Request, contentType: string): Promise<Blob | null> {
+  if (!request.body) return null
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    length += value.byteLength
+    if (length > MAX_REEL_VIDEO_BYTES) {
+      await reader.cancel()
+      return null
+    }
+    chunks.push(value)
+  }
+  if (length === 0) return null
+  const body = new Uint8Array(new ArrayBuffer(length))
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new Blob([body], { type: contentType })
+}
+
 /** HTTP actions do not validate arguments; reject chunked oversized bodies too. */
 export async function readReelImportBody(request: Request): Promise<string | null> {
   const declaredLength = Number(request.headers.get('content-length'))

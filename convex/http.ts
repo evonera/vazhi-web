@@ -16,7 +16,7 @@ import { generateSuggestionsForOwner } from './ai'
 import { authCapabilities } from './betterAuth/configuration'
 import { registerNativeAuth } from './nativeAuthHTTP'
 import type { Id } from './_generated/dataModel'
-import { MAX_REEL_VIDEO_BYTES, parseImportBody, readReelImportBody, reelVideoPreflight, safeIdempotencyKey, safeImportId, safeSourceURL } from '../src/lib/reelImportHTTP'
+import { parseImportBody, readReelImportBody, readReelVideoBody, reelVideoPreflight, safeIdempotencyKey, safeImportId, safeSourceURL } from '../src/lib/reelImportHTTP'
 
 const http = httpRouter()
 
@@ -487,40 +487,37 @@ const ownerVideoUpload = httpAction(async (ctx, request) => {
   }
   const preflight = reelVideoPreflight(request.headers)
   if (!preflight.ok) return privateJson({ message: preflight.message }, preflight.status)
-  let reservation: { id: Id<'reelImports'>; upload: boolean; created: boolean } | null
+  let blob: Blob | null
   try {
-    reservation = await ctx.runMutation(internal.imports.reserveVideoUploadForOwner, {
-      ownerAuthUserId,
-      importId: importId ? importId as Id<'reelImports'> : undefined,
-      idempotencyKey: idempotencyKey ?? undefined,
-      sourceURL,
-    })
-  } catch {
-    return privateJson({ message: 'This clip could not be queued. Check your daily limit or try a new import.' }, 400)
-  }
-  if (!reservation) return privateJson({ message: 'Import not found.' }, 404)
-  if (!reservation.upload) return privateJson({ id: reservation.id }, 200)
-  let blob: Blob
-  try {
-    blob = await request.blob()
+    blob = await readReelVideoBody(request, preflight.contentType)
   } catch {
     return privateJson({ message: 'The video upload was interrupted.' }, 400)
   }
-  if (blob.size === 0 || blob.size > MAX_REEL_VIDEO_BYTES) {
+  if (!blob) {
     return privateJson({ message: 'Choose a video under 20 MB.' }, 413)
   }
-  let storageId: Id<'_storage'> | undefined
+  let storageId: Id<'_storage'>
   try {
     storageId = await ctx.storage.store(blob)
-    const result = await ctx.runMutation(internal.imports.completeUploadForOwner, {
-      ownerAuthUserId, importId: reservation.id, storageId,
-    })
-    if (!result) throw new Error('Import reservation expired.')
-    return privateJson({ id: result.id }, reservation.created ? 201 : 200)
   } catch {
-    if (storageId) await ctx.storage.delete(storageId)
     return privateJson({ message: 'Upload could not be completed. Please retry.' }, 503)
   }
+  let result: { id: Id<'reelImports'>; accepted: boolean; created: boolean } | null
+  try {
+    result = await ctx.runMutation(internal.imports.commitVideoUploadForOwner, {
+      ownerAuthUserId, importId: importId ? importId as Id<'reelImports'> : undefined,
+      idempotencyKey: idempotencyKey ?? undefined, sourceURL, storageId,
+      contentType: preflight.contentType,
+    })
+  } catch {
+    try { await ctx.storage.delete(storageId) } catch { console.error('Failed to delete rejected reel upload.') }
+    return privateJson({ message: 'This clip could not be queued. Check your daily limit or try a new import.' }, 400)
+  }
+  if (!result || !result.accepted) {
+    try { await ctx.storage.delete(storageId) } catch { console.error('Failed to delete unused reel upload.') }
+  }
+  if (!result) return privateJson({ message: 'Import not found.' }, 404)
+  return privateJson({ id: result.id }, result.created ? 201 : 200)
 })
 
 http.route({ path: '/api/owner/imports/upload', method: 'POST', handler: ownerVideoUpload })

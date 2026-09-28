@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseImportBody, readReelImportBody, reelVideoPreflight, safeIdempotencyKey, safeImportId, safeSourceURL } from '../src/lib/reelImportHTTP'
+import { parseImportBody, readReelImportBody, readReelVideoBody, reelVideoPreflight, safeIdempotencyKey, safeImportId, safeSourceURL } from '../src/lib/reelImportHTTP'
 import { edgeIngressSignature, verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
 
 const key = 'f67f3517-956a-4f4e-a224-631cb43d8edf'
@@ -38,6 +38,17 @@ describe('reel import HTTP boundary', () => {
       .toMatchObject({ ok: true, contentType: 'video/quicktime' })
     expect(reelVideoPreflight(new Headers({ 'content-type': 'video/mp4', 'content-length': 'NaN' })))
       .toMatchObject({ ok: false, status: 413 })
+  })
+
+  it('rejects empty and oversized chunked videos before any upload mutation', async () => {
+    const empty = new Request('https://example.test/upload', { method: 'POST', body: '' })
+    expect(await readReelVideoBody(empty, 'video/mp4')).toBeNull()
+    const oversized = new Request('https://example.test/upload', {
+      method: 'POST', body: 'x'.repeat(20_000_001),
+    })
+    expect(await readReelVideoBody(oversized, 'video/mp4')).toBeNull()
+    const valid = new Request('https://example.test/upload', { method: 'POST', body: 'video' })
+    expect((await readReelVideoBody(valid, 'video/mp4'))?.size).toBe(5)
   })
 
   it('verifies Modal-compatible HMAC over the untouched body in a five-minute window', async () => {
