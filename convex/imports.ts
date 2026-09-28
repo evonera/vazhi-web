@@ -139,7 +139,10 @@ export const dispatchPayload = internalQuery({
     const record = await ctx.db.get(args.importId)
     if (!record || record.status !== 'queued') return null
     const mediaURL = record.mediaStorageId ? await ctx.storage.getUrl(record.mediaStorageId) : null
-    return { id: String(record._id), sourceURL: record.sourceURL ?? null, mediaURL, callbackURL: `${process.env.CONVEX_SITE_URL}/api/internal/imports/callback` }
+    // An uploaded video supersedes the original link for worker input. Keep
+    // sourceURL on the record for the owner's import history, but never send
+    // both inputs: the worker intentionally rejects ambiguous media sources.
+    return { id: String(record._id), sourceURL: record.mediaStorageId ? null : record.sourceURL ?? null, mediaURL, callbackURL: `${process.env.CONVEX_SITE_URL}/api/internal/imports/callback` }
   },
 })
 

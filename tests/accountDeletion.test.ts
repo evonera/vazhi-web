@@ -10,7 +10,7 @@ afterEach(() => vi.useRealTimers())
 test('account deletion removes owned descendants and leaves another account intact', async () => {
   vi.useFakeTimers()
   const t = convexTest(schema, modules)
-  const ownerID = await t.run(async (ctx) => {
+  const { ownerID, ownedMediaID, otherMediaID } = await t.run(async (ctx) => {
     const ownerID = await ctx.db.insert('user', {
       name: 'Owner', email: 'owner@example.test', emailVerified: true,
       createdAt: 1, updatedAt: 1,
@@ -66,7 +66,18 @@ test('account deletion removes owned descendants and leaves another account inta
       await ctx.db.insert('profiles', { ownerAuthUserId: ownerID, isPublic: false, updatedAt: index })
     }
     await ctx.db.insert('profiles', { ownerAuthUserId: otherID, isPublic: true, updatedAt: 1 })
-    return ownerID
+    const ownedMediaID = await ctx.storage.store(new Blob(['owned video'], { type: 'video/mp4' }))
+    const otherMediaID = await ctx.storage.store(new Blob(['other video'], { type: 'video/mp4' }))
+    await ctx.db.insert('reelImports', {
+      ownerAuthUserId: ownerID, idempotencyKey: 'owned-import',
+      sourceURL: 'https://www.instagram.com/reel/Owned123/',
+      mediaStorageId: ownedMediaID, status: 'awaiting_upload', createdAt: 1, updatedAt: 1,
+    })
+    await ctx.db.insert('reelImports', {
+      ownerAuthUserId: otherID, idempotencyKey: 'other-import',
+      mediaStorageId: otherMediaID, status: 'queued', createdAt: 1, updatedAt: 1,
+    })
+    return { ownerID, ownedMediaID, otherMediaID }
   })
 
   await t.mutation(internal.accountDeletion.prepare, { ownerAuthUserId: ownerID })
@@ -85,11 +96,17 @@ test('account deletion removes owned descendants and leaves another account inta
     reports: await ctx.db.query('reports').collect(),
     moderationActions: await ctx.db.query('moderationActions').collect(),
     profiles: await ctx.db.query('profiles').collect(),
+    reelImports: await ctx.db.query('reelImports').collect(),
+    ownedMedia: await ctx.db.system.get('_storage', ownedMediaID),
+    otherMedia: await ctx.db.system.get('_storage', otherMediaID),
     jobs: await ctx.db.query('accountDeletionJobs').collect(),
   }))
   expect(remaining.journeys.map((row) => row.localID)).toEqual(['other'])
   expect(remaining.profiles).toHaveLength(1)
   expect(remaining.profiles[0].ownerAuthUserId).not.toBe(ownerID)
+  expect(remaining.reelImports.map((row) => row.idempotencyKey)).toEqual(['other-import'])
+  expect(remaining.ownedMedia).toBeNull()
+  expect(remaining.otherMedia).not.toBeNull()
   for (const table of ['requests', 'recommendations', 'paths', 'pathStops', 'listings', 'versions', 'reports', 'moderationActions', 'jobs'] as const) {
     expect(remaining[table]).toHaveLength(0)
   }
