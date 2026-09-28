@@ -3,10 +3,18 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from reel_import_core import callback_signature, canonical_instagram_url, normalize_analysis, normalize_candidates
+from reel_import_core import callback_signature, canonical_instagram_url, normalize_analysis, normalize_candidates, require_one_media_input
 
 
 class ReelImportCoreTests(unittest.TestCase):
+    def test_worker_requires_exactly_one_media_source(self):
+        require_one_media_input("https://www.instagram.com/reel/ABC123xyz/", None)
+        require_one_media_input(None, "https://example.test/upload.mp4")
+        with self.assertRaises(ValueError):
+            require_one_media_input(None, None)
+        with self.assertRaises(ValueError):
+            require_one_media_input("https://www.instagram.com/reel/ABC123xyz/", "https://example.test/upload.mp4")
+
     def test_canonicalizes_public_reel_and_post_links(self):
         self.assertEqual(
             canonical_instagram_url("https://www.instagram.com/reel/ABC123xyz/?igsh=tracking"),

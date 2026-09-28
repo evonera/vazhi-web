@@ -24,7 +24,7 @@ import modal
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from reel_import_core import callback_signature, canonical_instagram_url, normalize_analysis
+from reel_import_core import callback_signature, canonical_instagram_url, normalize_analysis, require_one_media_input
 
 APP_NAME = "vazhi-reel-imports"
 MAX_MEDIA_BYTES = 100 * 1024 * 1024
@@ -65,8 +65,7 @@ class ImportJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def exactly_one_input(self) -> "ImportJobRequest":
-        if self.sourceURL is None and self.mediaURL is None:
-            raise ValueError("Provide a reel URL or an uploaded media URL.")
+        require_one_media_input(self.sourceURL, self.mediaURL)
         if self.sourceURL is not None:
             self.sourceURL = canonical_instagram_url(self.sourceURL)
         return self
@@ -170,8 +169,10 @@ def prepare_audio_and_frames(video_path: Path, working_dir: Path) -> tuple[bytes
     scaledown_window=2,
 )
 def prepare_media(import_id: str, source_url: str | None, media_url: str | None, callback_url: str) -> None:
-    if source_url is None and media_url is None:
-        asyncio.run(post_callback(callback_url, {"importId": import_id, "status": "failed", "failureCode": "missing_media"}))
+    try:
+        require_one_media_input(source_url, media_url)
+    except ValueError:
+        asyncio.run(post_callback(callback_url, {"importId": import_id, "status": "failed", "failureCode": "invalid_media_input"}))
         return
     is_link_download = source_url is not None and media_url is None
     if source_url is not None:

@@ -13,6 +13,12 @@ MAX_DURATION_SECONDS = 90
 MAX_CANDIDATES = 12
 
 
+def require_one_media_input(source_url: str | None, media_url: str | None) -> None:
+    """Reject missing or ambiguous worker media sources before processing."""
+    if (source_url is None) == (media_url is None):
+        raise ValueError("Provide exactly one reel URL or uploaded media URL.")
+
+
 def normalize_analysis(value: object, duration_seconds: float) -> tuple[list[dict[str, object]], bool]:
     """Parse grounded place candidates and whether the vision model saw legible text."""
     if isinstance(value, str):
