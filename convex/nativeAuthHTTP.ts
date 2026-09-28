@@ -32,7 +32,9 @@ export function registerNativeAuth(http: HttpRouter) {
       const session = await createAuth(ctx).api.getSession({ headers: request.headers })
       if (!session) return reply({ message: 'Sign in to continue.' }, 401)
       if (!(await limits.limit(ctx, 'nativeAuthorize', { key: session.user.id })).ok) return reply({ message: 'Please wait before trying again.' }, 429)
-      if (Date.now() - new Date(session.session.createdAt).getTime() > 5 * 60_000) return reply({ message: 'Sign out and sign in again to connect your iPhone.' }, 401)
+      // A valid, unexpired browser session may connect the phone at any time.
+      // The short-lived, single-use code and PKCE verifier bound the handoff;
+      // session creation time does not provide an additional security boundary.
       const code = base64URL(crypto.getRandomValues(new Uint8Array(32)))
       await ctx.runMutation(internal.nativeAuth.createGrant, {
         codeHash: await hash(code), codeChallenge: body.challenge,

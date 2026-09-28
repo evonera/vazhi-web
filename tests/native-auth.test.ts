@@ -54,7 +54,7 @@ test('live Inbox projection validates the session and isolates owners', async ()
   await expect(forgedSession.query(api.requests.inboxRevision, {})).rejects.toThrow()
 })
 
-test('native authorization rejects missing, cross-origin and stale browser sessions', async () => {
+test('native authorization rejects missing and cross-origin sessions but accepts an older live session', async () => {
   vi.stubEnv('SITE_URL', 'https://vazhi.test')
   vi.stubEnv('CONVEX_SITE_URL', 'https://backend.convex.site')
   vi.stubEnv('BETTER_AUTH_SECRET', 'test-secret-at-least-thirty-two-characters-long')
@@ -65,9 +65,9 @@ test('native authorization rejects missing, cross-origin and stale browser sessi
   expect((await t.fetch('/api/native/authorize', { method: 'POST', headers: { origin: 'https://vazhi.test' }, body })).status).toBe(401)
   const user = await t.mutation(components.betterAuth.adapter.create, { input: { model: 'user', data: { name: 'Owner', email: 'owner@example.test', emailVerified: true, createdAt: 1, updatedAt: 1 } } })
   await t.mutation(components.betterAuth.adapter.create, { input: { model: 'session', data: { userId: user._id, token: 'old-session', expiresAt: Date.now() + 60_000, createdAt: Date.now() - 600_000, updatedAt: Date.now() } } })
-  const stale = await t.fetch('/api/native/authorize', { method: 'POST', headers: { origin: 'https://vazhi.test', authorization: 'Bearer old-session' }, body })
-  expect(stale.status).toBe(401)
-  expect(await stale.text()).toContain('Sign out and sign in again')
+  const olderLiveSession = await t.fetch('/api/native/authorize', { method: 'POST', headers: { origin: 'https://vazhi.test', authorization: 'Bearer old-session' }, body })
+  expect(olderLiveSession.status).toBe(200)
+  expect((await olderLiveSession.json()).code).toMatch(/^[A-Za-z0-9_-]{43}$/)
   vi.unstubAllEnvs()
 })
 

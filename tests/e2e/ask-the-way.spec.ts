@@ -10,6 +10,49 @@ test('a visitor can submit a named recommendation through a public request', asy
   await expect(page.getByRole('heading', { name: 'Recommendation sent.' })).toBeVisible()
 })
 
+test('a failed public submission resets the single-use safety token before retry', async ({ page }) => {
+  const submittedTokens: string[] = []
+  let resetCalls = 0
+  await page.route('https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit', route => route.fulfill({
+    status: 200, contentType: 'application/javascript',
+    body: `window.turnstile = {
+      render: (_element, options) => { window.turnstileOptions = options; setTimeout(() => options.callback('first-token'), 0); return 'test-widget' },
+      reset: () => { window.turnstileResetCalls = (window.turnstileResetCalls || 0) + 1; window.turnstileOptions.callback('second-token') },
+      remove: () => {}
+    }`,
+  }))
+  await page.route('**/api/ask?slug=retry-link', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ slug: 'retry-link', prompt: 'Where should I go?', destination: 'Malaysia', status: 'open' }),
+  }))
+  await page.route('**/places/search', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify([{ provider: 'manual', name: 'Public market', latitude: 3.136, longitude: 101.619 }]),
+  }))
+  await page.route('**/api/recommendations', async route => {
+    const body = route.request().postDataJSON() as { turnstileToken: string }
+    submittedTokens.push(body.turnstileToken)
+    if (submittedTokens.length === 1) await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ message: 'Please try again.' }) })
+    else await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ accepted: true }) })
+  })
+
+  await page.goto('/ask/retry-link')
+  await page.getByLabel('Submit anonymously').check()
+  await expect(page.getByLabel('Instagram handle')).toHaveCount(0)
+  await page.getByLabel('Submit anonymously').uncheck()
+  await page.getByLabel('Your first name').fill('Shakthi')
+  await page.getByLabel('Find a place').fill('Public market')
+  await page.getByRole('button', { name: 'Public market' }).click()
+  await page.getByLabel('Why is it worth it?').fill('Great food stalls.')
+  await page.getByRole('button', { name: 'Send recommendation' }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Please try again.' })).toBeVisible()
+  resetCalls = await page.evaluate(() => (window as typeof window & { turnstileResetCalls?: number }).turnstileResetCalls ?? 0)
+  expect(resetCalls).toBe(1)
+  await page.getByRole('button', { name: 'Send recommendation' }).click()
+  await expect(page.getByRole('heading', { name: 'Recommendation sent.' })).toBeVisible()
+  expect(submittedTokens).toEqual(['first-token', 'second-token'])
+})
+
 test('manual public-place coordinates remain usable when search is unavailable', async ({ page }) => {
   await page.route('**/api/ask?slug=offline-places', route => route.fulfill({
     status: 200,

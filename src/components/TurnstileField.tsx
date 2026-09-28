@@ -8,6 +8,7 @@ type TurnstileAPI = {
     'expired-callback': () => void
   }) => string
   remove: (widgetID: string) => void
+  reset: (widgetID: string) => void
 }
 
 declare global {
@@ -17,7 +18,7 @@ declare global {
 const scriptID = 'cloudflare-turnstile'
 
 /** Client widget only; the Cloudflare Worker verifies its token server-side. */
-export function TurnstileField({ onToken }: { onToken: (token: string | null) => void }) {
+export function TurnstileField({ onToken, resetKey }: { onToken: (token: string | null) => void; resetKey: number }) {
   const container = useRef<HTMLDivElement>(null)
   const widgetID = useRef<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -66,6 +67,12 @@ export function TurnstileField({ onToken }: { onToken: (token: string | null) =>
       widgetID.current = null
     }
   }, [onToken, siteKey])
+
+  useEffect(() => {
+    if (resetKey === 0 || !widgetID.current || !window.turnstile) return
+    setMessage('Complete the safety check again to retry.')
+    window.turnstile.reset(widgetID.current)
+  }, [resetKey])
 
   return (
     <div className="turnstile-field">
