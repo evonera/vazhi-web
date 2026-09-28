@@ -45,3 +45,42 @@ test('native handoff sends only a PKCE challenge after explicit user confirmatio
   await expect(page.getByRole('alert')).toHaveText('Sign in again.')
   expect(calls).toBe(1)
 })
+
+test('a native Google choice starts only Google sign-in and drops the choice from its callback', async ({ page }) => {
+  const challenge = 'a'.repeat(43), state = 'b'.repeat(43)
+  let socialCalls = 0
+  await page.route('**/api/owner/auth-capabilities', route => route.fulfill({ json: { email: true, apple: true, google: true, discord: true } }))
+  await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }))
+  await page.route('**/api/auth/sign-in/social', route => {
+    socialCalls++
+    const body = route.request().postDataJSON() as { provider: string; callbackURL: string }
+    expect(body.provider).toBe('google')
+    expect(body.callbackURL).toContain(`nativeChallenge=${challenge}`)
+    expect(body.callbackURL).not.toContain('provider=')
+    return route.fulfill({ status: 503, json: { message: 'Provider unavailable' } })
+  })
+  await page.goto(`/sign-in?nativeChallenge=${challenge}&state=${state}&provider=google`)
+  await expect(page.getByRole('alert')).toBeVisible()
+  expect(socialCalls).toBe(1)
+})
+
+test('an unavailable native provider stays on sign-in without a social request', async ({ page }) => {
+  const challenge = 'a'.repeat(43), state = 'b'.repeat(43)
+  let socialCalls = 0
+  await page.route('**/api/owner/auth-capabilities', route => route.fulfill({ json: { email: true, apple: false, google: false, discord: false } }))
+  await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }))
+  await page.route('**/api/auth/sign-in/social', route => { socialCalls++; return route.fulfill({ status: 500 }) })
+  await page.goto(`/sign-in?nativeChallenge=${challenge}&state=${state}&provider=discord`)
+  await expect(page.getByRole('alert')).toContainText('Discord sign-in is not available yet')
+  expect(socialCalls).toBe(0)
+})
+
+test('a provider query without native PKCE context does not auto-start sign-in', async ({ page }) => {
+  let socialCalls = 0
+  await page.route('**/api/owner/auth-capabilities', route => route.fulfill({ json: { email: true, apple: true, google: true, discord: true } }))
+  await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }))
+  await page.route('**/api/auth/sign-in/social', route => { socialCalls++; return route.fulfill({ status: 500 }) })
+  await page.goto('/sign-in?provider=google')
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeEnabled()
+  expect(socialCalls).toBe(0)
+})
