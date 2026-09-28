@@ -6,5 +6,7 @@ dist/
 !.env.example
 test-results/
 playwright-report/
+__pycache__/
+*.pyc
 legacy-reference/
 convex/betterAuth/_generated/

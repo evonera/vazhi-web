@@ -11,12 +11,14 @@ const phases = [
   'recommendations', 'pathStops', 'privateRouteStops', 'routeSnapshots',
   'askRequests', 'paths', 'publicItineraryListings', 'journeys',
   'syncedMoments', 'syncedJourneys', 'syncedOutboxJobs', 'aiUsageEvents',
-  'profileHandleAliases', 'profiles', 'nativeAuthGrants',
+  // Append new phases: active deletion jobs persist the numeric phase index.
+  'profileHandleAliases', 'profiles', 'nativeAuthGrants', 'reelImports',
 ] as const
 
 type Phase = typeof phases[number]
 type OwnedRow = {
   ownerAuthUserId?: string
+  mediaStorageId?: Id<'_storage'>
   listingId?: Id<'publicItineraryListings'>
   reportId?: Id<'reports'>
   listingSlug?: string
@@ -115,7 +117,11 @@ export const purgeNext = internalMutation({
     }
     const page = await ctx.db.query(phase).paginate({ numItems: 50, cursor: job.cursor ?? null })
     for (const row of page.page) {
-      if (await belongsToAccount(ctx, phase, row as OwnedRow, job.ownerAuthUserId)) {
+      const ownedRow = row as OwnedRow
+      if (await belongsToAccount(ctx, phase, ownedRow, job.ownerAuthUserId)) {
+        if (phase === 'reelImports' && ownedRow.mediaStorageId) {
+          await ctx.storage.delete(ownedRow.mediaStorageId)
+        }
         await ctx.db.delete(row._id)
       }
     }

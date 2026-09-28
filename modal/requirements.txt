@@ -1,0 +1,10 @@
+modal>=1.2.6,<2
+fastapi>=0.115,<1
+yt-dlp>=2026.3.3
+pillow>=11,<13
+qwen-asr>=0.0.6
+torch>=2.8
+torchvision
+accelerate>=1.10
+transformers>=4.57
+qwen-vl-utils>=0.0.14

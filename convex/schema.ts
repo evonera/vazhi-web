@@ -82,6 +82,45 @@ export default defineSchema({
     .index('by_askRequestId_and_submittedAt', ['askRequestId', 'submittedAt'])
     .index('by_askRequestId_and_status_and_submittedAt', ['askRequestId', 'status', 'submittedAt']),
 
+  // Private, owner-scoped video analysis jobs. Original media is temporary
+  // Convex Storage data and is deleted after processing or timeout.
+  reelImports: defineTable({
+    ownerAuthUserId: v.string(),
+    idempotencyKey: v.string(),
+    sourceURL: v.optional(v.string()),
+    status: v.union(
+      v.literal('awaiting_upload'), v.literal('queued'), v.literal('processing'),
+      v.literal('resolving_places'), v.literal('ready'), v.literal('needs_media'), v.literal('failed'),
+    ),
+    mediaStorageId: v.optional(v.id('_storage')),
+    // Increments on each new media attempt so stale worker callbacks cannot
+    // mutate a later Photos retry. Optional for pre-migration records.
+    dispatchAttempt: v.optional(v.number()),
+    uploadAttemptCount: v.optional(v.number()),
+    failureCode: v.optional(v.string()),
+    mediaSignals: v.optional(v.object({
+      audioTrackDetected: v.boolean(),
+      audioHasEnergy: v.boolean(),
+      audioTranscriptDetected: v.boolean(),
+      framesAnalyzed: v.number(),
+      visibleTextDetected: v.boolean(),
+    })),
+    warningCodes: v.optional(v.array(v.string())),
+    candidates: v.optional(v.array(v.object({
+      name: v.string(),
+      evidence: v.string(),
+      evidenceType: v.union(v.literal('audio'), v.literal('speech'), v.literal('screen_text'), v.literal('visual_landmark')),
+      startSeconds: v.optional(v.number()),
+      endSeconds: v.optional(v.number()),
+      placeIDs: v.array(v.string()),
+    }))),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_ownerAuthUserId_and_idempotencyKey', ['ownerAuthUserId', 'idempotencyKey'])
+    .index('by_ownerAuthUserId_and_createdAt', ['ownerAuthUserId', 'createdAt'])
+    .index('by_status_and_updatedAt', ['status', 'updatedAt']),
+
   paths: defineTable({
     ownerAuthUserId: v.string(),
     journeyId: v.optional(v.id('journeys')),
