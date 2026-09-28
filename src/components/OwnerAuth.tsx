@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useSignInEmail, useSignUpEmail, useSignInSocial, useSession, useRequestPasswordReset, useResetPassword, useLinkSocial, useSignOut, useListAccounts } from '@better-auth-ui/react'
 import { authClient } from '../lib/auth'
 
@@ -30,6 +30,12 @@ export function nativeAuthContext(search = window.location.search) {
   return /^[A-Za-z0-9_-]{43}$/.test(challenge) && /^[A-Za-z0-9_-]{43}$/.test(state) ? { challenge, state } : null
 }
 
+export function nativePreferredSocialProvider(search = window.location.search): 'google' | 'discord' | null {
+  if (!nativeAuthContext(search)) return null
+  const provider = new URLSearchParams(search).get('provider')
+  return provider === 'google' || provider === 'discord' ? provider : null
+}
+
 export function OwnerSignInPage() {
   const { capabilities, failed } = useCapabilities()
   const session = useSession(authClient)
@@ -41,12 +47,25 @@ export function OwnerSignInPage() {
   const signOut = useSignOut(authClient)
   const resetToken = new URLSearchParams(window.location.search).get('token')
   const native = nativeAuthContext()
+  const preferredSocialProvider = nativePreferredSocialProvider()
+  const attemptedPreferredSignIn = useRef(false)
   const [mode, setMode] = useState<'in' | 'up' | 'forgot' | 'reset'>(resetToken ? 'reset' : 'in')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [finishing, setFinishing] = useState(false)
   const callbackURL = new URL(native ? `/sign-in?nativeChallenge=${native.challenge}&state=${native.state}` : '/requests', window.location.origin).href
   const pending = signIn.isPending || signUp.isPending || social.isPending || forgot.isPending || reset.isPending || finishing || signOut.isPending
+
+  useEffect(() => {
+    if (!preferredSocialProvider || !capabilities || session.isPending || session.data || attemptedPreferredSignIn.current) return
+    attemptedPreferredSignIn.current = true
+    if (!capabilities[preferredSocialProvider]) {
+      setError(`${names[preferredSocialProvider]} sign-in is not available yet. Choose another option.`)
+      return
+    }
+    social.mutateAsync({ provider: preferredSocialProvider, callbackURL, errorCallbackURL: callbackURL })
+      .catch(reason => setError(reason instanceof Error ? reason.message : 'Could not sign in. Choose another option.'))
+  }, [preferredSocialProvider, capabilities, session.isPending, session.data, social, callbackURL])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(''); setMessage('')
