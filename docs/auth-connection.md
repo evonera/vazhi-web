@@ -12,7 +12,7 @@ Account linking is explicit from `/requests` after sign-in. Implicit email-based
 
 1. iOS opens `/sign-in` in `ASWebAuthenticationSession` with a random state and S256 PKCE challenge.
 2. The owner signs in, sees their account identity, and explicitly taps **Continue to Vazhi**.
-3. An authenticated, recent browser session creates a 90-second one-use grant. Only a code and state enter the fixed `com.evonera.vazhi://auth/callback` URL.
+3. An authenticated, unexpired browser session creates a 90-second one-use grant. Only a code and state enter the fixed `com.evonera.vazhi://auth/callback` URL.
 4. Native code validates the callback and exchanges the grant with its private verifier. Convex checks the same still-valid owner session before issuing a JWT.
 5. The Better Auth session and JWT are stored in device-only Keychain, not UserDefaults, browser localStorage, or URLs. JWT renewal is silent; revoked sessions require explicit reconnect. Network failures retain the session for retry.
 

@@ -29,6 +29,7 @@ export type Place = {
 }
 
 export type RecommendationSubmission = {
+  clientSubmissionID?: string
   anonymous: boolean
   contributorName?: string
   contributorHandle?: string

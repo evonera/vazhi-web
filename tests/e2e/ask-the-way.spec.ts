@@ -12,6 +12,7 @@ test('a visitor can submit a named recommendation through a public request', asy
 
 test('a failed public submission resets the single-use safety token before retry', async ({ page }) => {
   const submittedTokens: string[] = []
+  const submittedIDs: string[] = []
   let resetCalls = 0
   await page.route('https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit', route => route.fulfill({
     status: 200, contentType: 'application/javascript',
@@ -30,8 +31,9 @@ test('a failed public submission resets the single-use safety token before retry
     body: JSON.stringify([{ provider: 'manual', name: 'Public market', latitude: 3.136, longitude: 101.619 }]),
   }))
   await page.route('**/api/recommendations', async route => {
-    const body = route.request().postDataJSON() as { turnstileToken: string }
+    const body = route.request().postDataJSON() as { turnstileToken: string; clientSubmissionID: string }
     submittedTokens.push(body.turnstileToken)
+    submittedIDs.push(body.clientSubmissionID)
     if (submittedTokens.length === 1) await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ message: 'Please try again.' }) })
     else await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ accepted: true }) })
   })
@@ -51,6 +53,56 @@ test('a failed public submission resets the single-use safety token before retry
   await page.getByRole('button', { name: 'Send recommendation' }).click()
   await expect(page.getByRole('heading', { name: 'Recommendation sent.' })).toBeVisible()
   expect(submittedTokens).toEqual(['first-token', 'second-token'])
+  expect(submittedIDs[0]).toMatch(/^[0-9a-f-]{36}$/)
+  expect(submittedIDs[1]).toBe(submittedIDs[0])
+})
+
+test('a committed recommendation with a lost response reuses its ID after page reload', async ({ page }) => {
+  const receivedIDs: string[] = []
+  const committed = new Set<string>()
+  await page.route('https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit', route => route.fulfill({
+    status: 200, contentType: 'application/javascript',
+    body: `window.turnstile = {
+      render: (_element, options) => { window.turnstileOptions = options; setTimeout(() => options.callback('fresh-token'), 0); return 'test-widget' },
+      reset: () => { window.turnstileOptions.callback('retry-token') },
+      remove: () => {}
+    }`,
+  }))
+  await page.route('**/api/ask?slug=lost-response', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ slug: 'lost-response', prompt: 'Where should I go?', destination: 'Malaysia', status: 'open' }),
+  }))
+  await page.route('**/places/search', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify([{ provider: 'manual', name: 'Public market', latitude: 3.136, longitude: 101.619 }]),
+  }))
+  await page.route('**/api/recommendations', async route => {
+    const body = route.request().postDataJSON() as { clientSubmissionID: string }
+    receivedIDs.push(body.clientSubmissionID)
+    committed.add(body.clientSubmissionID) // The server commits before its response is lost.
+    await route.fulfill({ status: receivedIDs.length === 1 ? 502 : 200, contentType: 'application/json',
+      body: JSON.stringify(receivedIDs.length === 1 ? { message: 'Connection lost.' } : { accepted: true }) })
+  })
+
+  const completeForm = async () => {
+    await page.getByLabel('Your first name').fill('Shakthi')
+    await page.getByLabel('Find a place').fill('Public market')
+    await page.getByRole('button', { name: 'Public market' }).click()
+    await page.getByLabel('Why is it worth it?').fill('Great food stalls.')
+    await page.getByRole('button', { name: 'Send recommendation' }).click()
+  }
+  await page.goto('/ask/lost-response')
+  await completeForm()
+  await expect(page.getByRole('alert').filter({ hasText: 'Connection lost.' })).toBeVisible()
+  const saved = await page.evaluate(() => sessionStorage.getItem('vazhi:ask-submission:lost-response'))
+  expect(saved).not.toContain('Great food stalls.')
+
+  await page.reload()
+  await completeForm()
+  await expect(page.getByRole('heading', { name: 'Recommendation sent.' })).toBeVisible()
+  expect(receivedIDs[0]).toMatch(/^[0-9a-f-]{36}$/)
+  expect(receivedIDs[1]).toBe(receivedIDs[0])
+  expect(committed.size).toBe(1)
 })
 
 test('manual public-place coordinates remain usable when search is unavailable', async ({ page }) => {

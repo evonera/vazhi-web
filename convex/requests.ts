@@ -10,6 +10,7 @@ import type { DataModel } from './_generated/dataModel'
 import { toOwnerAskRequest, toPublicAskRequest } from './askProjections'
 import { MAX_PATH_STOPS, hasPathStopCapacity, orderAcceptedRecommendations } from './acceptedRecommendationOrder'
 import { durableRecommendationPlace } from '../src/lib/googlePlaceRetention'
+import { recommendationContentHash, sha256Hex, validClientSubmissionID } from '../src/lib/recommendationSubmission'
 
 const category = v.union(
   v.literal('food'), v.literal('hidden_spot'), v.literal('stay'),
@@ -212,10 +213,29 @@ export const getPublicBySlug = internalQuery({
 })
 
 export const submitPublic = internalMutation({
-  args: { slug: v.string(), rateLimitKey: v.string(), anonymous: v.boolean(), contributorName: v.optional(v.string()), contributorHandle: v.optional(v.string()), category, place, note: v.string(), referenceURL: v.optional(v.string()) },
+  args: { slug: v.string(), rateLimitKey: v.string(), clientSubmissionID: v.optional(v.string()), anonymous: v.boolean(), contributorName: v.optional(v.string()), contributorHandle: v.optional(v.string()), category, place, note: v.string(), referenceURL: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const request = await ctx.db.query('askRequests').withIndex('by_slug', (q) => q.eq('slug', args.slug)).unique()
-    if (!request || request.status !== 'open') throw new ConvexError('This request is no longer accepting recommendations.')
+    if (!request) throw new ConvexError('This request is no longer accepting recommendations.')
+    let submissionIDHash: string | undefined
+    let contentHash: string | undefined
+    if (args.clientSubmissionID !== undefined) {
+      if (!validClientSubmissionID(args.clientSubmissionID)) throw new ConvexError('Invalid submission. Please refresh and try again.')
+      const digest = await sha256Hex(args.clientSubmissionID)
+      submissionIDHash = digest
+      contentHash = await recommendationContentHash(args)
+      const previous = await ctx.db.query('recommendationSubmissions')
+        .withIndex('by_askRequestId_and_submissionIDHash', q => q
+          .eq('askRequestId', request._id).eq('submissionIDHash', digest))
+        .unique()
+      if (previous) {
+        if (previous.contentHash !== contentHash) throw new ConvexError('This recommendation changed. Please refresh and try again.')
+        // A previous write may have committed even when its HTTP response was
+        // lost. Acknowledge it without consuming another rate token or count.
+        return null
+      }
+    }
+    if (request.status !== 'open') throw new ConvexError('This request is no longer accepting recommendations.')
     const { ok } = await rateLimiter.limit(ctx, 'publicRecommendation', {
       key: `${request._id}:${args.rateLimitKey}`,
     })
@@ -229,6 +249,10 @@ export const submitPublic = internalMutation({
     if (args.place.provider === 'google' && !args.place.providerPlaceID?.trim()) throw new ConvexError('Choose a valid Google place.')
     const durablePlace = durableRecommendationPlace(args.place)
     await ctx.db.insert('recommendations', { askRequestId: request._id, anonymous: args.anonymous, contributorName: args.anonymous ? undefined : args.contributorName?.trim(), contributorHandle: args.anonymous ? undefined : args.contributorHandle?.trim(), category: args.category, place: durablePlace, note: args.note.trim(), referenceURL: args.referenceURL, status: 'pending', submittedAt: Date.now() })
+    if (submissionIDHash && contentHash) await ctx.db.insert('recommendationSubmissions', {
+      ownerAuthUserId: request.ownerAuthUserId, askRequestId: request._id,
+      submissionIDHash, contentHash, createdAt: Date.now(),
+    })
     const journey = await ctx.db.get(request.journeyId)
     await ctx.db.patch(request._id, { recommendationCount: request.recommendationCount + 1, pendingRecommendationCount: request.pendingRecommendationCount + 1, inboxVersion: (request.inboxVersion ?? 0) + 1 })
     if (journey) await ctx.db.patch(journey._id, { recommendationCount: journey.recommendationCount + 1, pendingRecommendationCount: journey.pendingRecommendationCount + 1, updatedAt: Date.now() })

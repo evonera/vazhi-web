@@ -82,6 +82,16 @@ export default defineSchema({
     .index('by_askRequestId_and_submittedAt', ['askRequestId', 'submittedAt'])
     .index('by_askRequestId_and_status_and_submittedAt', ['askRequestId', 'status', 'submittedAt']),
 
+  // One opaque receipt per public submission. Keeping this separate from
+  // recommendations prevents retry identifiers from reaching owner clients.
+  recommendationSubmissions: defineTable({
+    ownerAuthUserId: v.string(),
+    askRequestId: v.id('askRequests'),
+    submissionIDHash: v.string(),
+    contentHash: v.string(),
+    createdAt: v.number(),
+  }).index('by_askRequestId_and_submissionIDHash', ['askRequestId', 'submissionIDHash']),
+
   // Private, owner-scoped video analysis jobs. Original media is temporary
   // Convex Storage data and is deleted after processing or timeout.
   reelImports: defineTable({
