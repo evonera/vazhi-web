@@ -52,6 +52,7 @@ export const createLinkForOwner = internalMutation({
       idempotencyKey: args.idempotencyKey,
       sourceURL,
       status: 'queued',
+      dispatchAttempt: 0,
       createdAt: now,
       updatedAt: now,
     })
@@ -102,6 +103,7 @@ export const commitVideoUploadForOwner = internalMutation({
       }
       await ctx.db.patch(existing._id, {
         status: 'queued', failureCode: undefined, mediaStorageId: args.storageId,
+        dispatchAttempt: (existing.dispatchAttempt ?? 0) + 1,
         uploadAttemptCount: (existing.uploadAttemptCount ?? 0) + 1,
         updatedAt: Date.now(),
       })
@@ -118,6 +120,7 @@ export const commitVideoUploadForOwner = internalMutation({
       sourceURL,
       mediaStorageId: args.storageId,
       status: 'queued',
+      dispatchAttempt: 1,
       uploadAttemptCount: 1,
       createdAt: now,
       updatedAt: now,
@@ -136,25 +139,25 @@ export const dispatchPayload = internalQuery({
     // An uploaded video supersedes the original link for worker input. Keep
     // sourceURL on the record for the owner's import history, but never send
     // both inputs: the worker intentionally rejects ambiguous media sources.
-    return { id: String(record._id), sourceURL: record.mediaStorageId ? null : record.sourceURL ?? null, mediaURL, callbackURL: `${process.env.CONVEX_SITE_URL}/api/internal/imports/callback` }
+    return { id: String(record._id), attempt: record.dispatchAttempt ?? 0, sourceURL: record.mediaStorageId ? null : record.sourceURL ?? null, mediaURL, callbackURL: `${process.env.CONVEX_SITE_URL}/api/internal/imports/callback` }
   },
 })
 
 export const markDispatched = internalMutation({
-  args: { importId: v.id('reelImports'), modalCallId: v.optional(v.string()) },
+  args: { importId: v.id('reelImports'), attempt: v.number() },
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.importId)
-    if (!record || record.status !== 'queued') return null
+    if (!record || record.status !== 'queued' || (record.dispatchAttempt ?? 0) !== args.attempt) return null
     await ctx.db.patch(record._id, { status: 'processing', updatedAt: Date.now() })
     return null
   },
 })
 
 export const markDispatchFailed = internalMutation({
-  args: { importId: v.id('reelImports'), failureCode: v.string() },
+  args: { importId: v.id('reelImports'), attempt: v.number(), failureCode: v.string() },
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.importId)
-    if (!record || record.status !== 'queued') return null
+    if (!record || record.status !== 'queued' || (record.dispatchAttempt ?? 0) !== args.attempt) return null
     if (record.mediaStorageId) await ctx.storage.delete(record.mediaStorageId)
     await ctx.db.patch(record._id, {
       status: record.sourceURL && !record.mediaStorageId ? 'needs_media' : 'failed',
@@ -174,28 +177,28 @@ export const dispatch = internalAction({
     const endpoint = process.env.MODAL_REEL_IMPORT_URL
     const token = process.env.MODAL_REEL_IMPORT_TOKEN
     if (payload.sourceURL && !payload.mediaURL && process.env.REEL_URL_IMPORT_ENABLED !== 'true') {
-      await ctx.runMutation(internal.imports.markDispatchFailed, { importId: args.importId, failureCode: 'url_import_not_enabled' })
+      await ctx.runMutation(internal.imports.markDispatchFailed, { importId: args.importId, attempt: payload.attempt, failureCode: 'url_import_not_enabled' })
       return null
     }
     if (!endpoint || !token || !payload.callbackURL.startsWith('https://')) {
-      await ctx.runMutation(internal.imports.markDispatchFailed, { importId: args.importId, failureCode: 'worker_unavailable' })
+      await ctx.runMutation(internal.imports.markDispatchFailed, { importId: args.importId, attempt: payload.attempt, failureCode: 'worker_unavailable' })
       return null
     }
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ importId: payload.id, sourceURL: payload.sourceURL, mediaURL: payload.mediaURL }),
+        body: JSON.stringify({ importId: payload.id, attempt: payload.attempt, sourceURL: payload.sourceURL, mediaURL: payload.mediaURL }),
         signal: AbortSignal.timeout(15_000),
       })
       if (!response.ok) throw new Error(`Modal returned ${response.status}`)
-      const body = await response.json() as { callId?: unknown }
+      await response.json()
       await ctx.runMutation(internal.imports.markDispatched, {
         importId: args.importId,
-        modalCallId: typeof body.callId === 'string' ? body.callId : undefined,
+        attempt: payload.attempt,
       })
     } catch {
-      await ctx.runMutation(internal.imports.markDispatchFailed, { importId: args.importId, failureCode: 'worker_unavailable' })
+      await ctx.runMutation(internal.imports.markDispatchFailed, { importId: args.importId, attempt: payload.attempt, failureCode: 'worker_unavailable' })
     }
     return null
   },
@@ -204,6 +207,7 @@ export const dispatch = internalAction({
 export const acceptCallback = internalMutation({
   args: {
     importId: v.id('reelImports'),
+    attempt: v.number(),
     status: v.union(v.literal('processing'), v.literal('needs_media'), v.literal('failed'), v.literal('completed')),
     failureCode: v.optional(v.string()),
     mediaSignals: v.optional(v.object({
@@ -222,11 +226,11 @@ export const acceptCallback = internalMutation({
   },
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.importId)
-    if (!record || !['queued', 'processing'].includes(record.status)) return null
+    if (!record || !['queued', 'processing'].includes(record.status) || (record.dispatchAttempt ?? 0) !== args.attempt) return false
     const now = Date.now()
     if (args.status === 'processing') {
       await ctx.db.patch(record._id, { status: 'processing', updatedAt: now })
-      return null
+      return true
     }
     if (args.status === 'needs_media' || args.status === 'failed') {
       await ctx.db.patch(record._id, {
@@ -236,7 +240,7 @@ export const acceptCallback = internalMutation({
         updatedAt: now,
       })
       if (record.mediaStorageId) await ctx.storage.delete(record.mediaStorageId)
-      return null
+      return true
     }
     const candidates = args.candidates ?? []
     if (candidates.length > 12 || candidates.some((item) => !item.name.trim() || item.name.length > 120 ||
@@ -247,7 +251,7 @@ export const acceptCallback = internalMutation({
         status: 'failed', failureCode: 'invalid_worker_result', mediaStorageId: undefined, updatedAt: now,
       })
       if (record.mediaStorageId) await ctx.storage.delete(record.mediaStorageId)
-      return null
+      return true
     }
     await ctx.db.patch(record._id, {
       status: 'resolving_places',
@@ -259,7 +263,7 @@ export const acceptCallback = internalMutation({
     })
     if (record.mediaStorageId) await ctx.storage.delete(record.mediaStorageId)
     await ctx.scheduler.runAfter(0, internal.imports.resolvePlaces, { importId: record._id })
-    return null
+    return true
   },
 })
 

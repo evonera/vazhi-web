@@ -60,6 +60,7 @@ _vision_models: tuple[object, object] | None = None
 class ImportJobRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     importId: str = Field(min_length=4, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    attempt: int = Field(ge=0, le=1_000_000)
     sourceURL: str | None = Field(default=None, max_length=2048)
     mediaURL: str | None = Field(default=None, max_length=4096)
 
@@ -168,18 +169,18 @@ def prepare_audio_and_frames(video_path: Path, working_dir: Path) -> tuple[bytes
     max_containers=4,
     scaledown_window=2,
 )
-def prepare_media(import_id: str, source_url: str | None, media_url: str | None, callback_url: str) -> None:
+def prepare_media(import_id: str, attempt: int, source_url: str | None, media_url: str | None, callback_url: str) -> None:
     try:
         require_one_media_input(source_url, media_url)
     except ValueError:
-        asyncio.run(post_callback(callback_url, {"importId": import_id, "status": "failed", "failureCode": "invalid_media_input"}))
+        asyncio.run(post_callback(callback_url, {"importId": import_id, "attempt": attempt, "status": "failed", "failureCode": "invalid_media_input"}))
         return
     is_link_download = source_url is not None and media_url is None
     if source_url is not None:
         try:
             source_url = canonical_instagram_url(source_url)
         except ValueError:
-            asyncio.run(post_callback(callback_url, {"importId": import_id, "status": "failed", "failureCode": "invalid_source"}))
+            asyncio.run(post_callback(callback_url, {"importId": import_id, "attempt": attempt, "status": "failed", "failureCode": "invalid_source"}))
             return
 
     with tempfile.TemporaryDirectory(prefix="vazhi-reel-") as temporary:
@@ -216,7 +217,7 @@ def prepare_media(import_id: str, source_url: str | None, media_url: str | None,
                 download_upload(media_url, video_path)
 
             audio, frames, duration, signals = prepare_audio_and_frames(video_path, working_dir)
-            analyze_media.spawn(import_id, callback_url, audio, frames, duration, signals)
+            analyze_media.spawn(import_id, attempt, callback_url, audio, frames, duration, signals)
         except Exception as error:
             if is_link_download and isinstance(error, ValueError) and str(error) in {"clip_too_long", "video_too_large", "empty_video"}:
                 status, failure = "failed", str(error)
@@ -224,7 +225,7 @@ def prepare_media(import_id: str, source_url: str | None, media_url: str | None,
                 status, failure = "needs_media", "source_unavailable"
             else:
                 status, failure = "failed", str(error)[:80] if isinstance(error, ValueError) else "invalid_uploaded_video"
-            asyncio.run(post_callback(callback_url, {"importId": import_id, "status": status, "failureCode": failure}))
+            asyncio.run(post_callback(callback_url, {"importId": import_id, "attempt": attempt, "status": status, "failureCode": failure}))
 
 
 def load_asr_model():
@@ -260,6 +261,7 @@ def load_vision_models():
 )
 def analyze_media(
     import_id: str,
+    attempt: int,
     callback_url: str,
     audio: bytes,
     raw_frames: list[dict[str, object]],
@@ -269,7 +271,7 @@ def analyze_media(
     from PIL import Image
 
     try:
-        asyncio.run(post_callback(callback_url, {"importId": import_id, "status": "processing"}))
+        asyncio.run(post_callback(callback_url, {"importId": import_id, "attempt": attempt, "status": "processing"}))
         audio_path: Path | None = None
         if audio:
             audio_path = Path(tempfile.gettempdir()) / f"vazhi-{import_id}.wav"
@@ -336,11 +338,11 @@ def analyze_media(
                 item["endSeconds"] = round(min(duration, timestamp + 1), 2)
 
         asyncio.run(post_callback(callback_url, {
-            "importId": import_id, "status": "completed", "candidates": candidates,
+            "importId": import_id, "attempt": attempt, "status": "completed", "candidates": candidates,
             "mediaSignals": signals, "warnings": warnings,
         }))
     except Exception:
-        asyncio.run(post_callback(callback_url, {"importId": import_id, "status": "failed", "failureCode": "analysis_failed"}))
+        asyncio.run(post_callback(callback_url, {"importId": import_id, "attempt": attempt, "status": "failed", "failureCode": "analysis_failed"}))
     finally:
         if audio_path is not None:
             audio_path.unlink(missing_ok=True)
@@ -359,7 +361,7 @@ async def submit_job(body: ImportJobRequest, authorization: str | None = Header(
     callback_url = os.environ.get("CONVEX_IMPORT_CALLBACK_URL", "")
     if not callback_url.startswith("https://") or "/api/internal/imports/callback" not in callback_url:
         raise HTTPException(status_code=503, detail="Callback is not configured")
-    call = await prepare_media.spawn.aio(body.importId, body.sourceURL, body.mediaURL, callback_url)
+    call = await prepare_media.spawn.aio(body.importId, body.attempt, body.sourceURL, body.mediaURL, callback_url)
     return {"callId": call.object_id, "accepted": True}
 
 

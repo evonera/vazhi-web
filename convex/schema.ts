@@ -93,6 +93,9 @@ export default defineSchema({
       v.literal('resolving_places'), v.literal('ready'), v.literal('needs_media'), v.literal('failed'),
     ),
     mediaStorageId: v.optional(v.id('_storage')),
+    // Increments on each new media attempt so stale worker callbacks cannot
+    // mutate a later Photos retry. Optional for pre-migration records.
+    dispatchAttempt: v.optional(v.number()),
     uploadAttemptCount: v.optional(v.number()),
     failureCode: v.optional(v.string()),
     mediaSignals: v.optional(v.object({

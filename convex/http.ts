@@ -581,15 +581,16 @@ http.route({ path: '/api/internal/imports/callback', method: 'POST', handler: ht
   const importId = safeImportId(input?.importId)
   if (!input || !importId) return privateJson({ message: 'Invalid callback.' }, 400)
   try {
-    await ctx.runMutation(internal.imports.acceptCallback, {
+    const accepted = await ctx.runMutation(internal.imports.acceptCallback, {
       importId: importId as Id<'reelImports'>,
+      attempt: input.attempt,
       status: input.status,
       failureCode: input.failureCode,
       mediaSignals: input.mediaSignals,
       warningCodes: input.warnings,
       candidates: input.candidates,
     } as never)
-    return privateJson({ accepted: true })
+    return privateJson({ accepted })
   } catch {
     return privateJson({ message: 'Invalid callback.' }, 400)
   }

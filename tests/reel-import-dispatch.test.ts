@@ -64,6 +64,16 @@ test('invalid stored media cannot consume an import retry; a valid upload commit
   expect(after?.uploadAttemptCount).toBe(1)
   expect(after?.status).toBe('queued')
   expect(after?.mediaStorageId).toBe(validStorageID)
+  expect(after?.dispatchAttempt).toBe(1)
+  expect(await t.mutation(internal.imports.acceptCallback, {
+    importId: importID, attempt: 0, status: 'failed', failureCode: 'old_attempt_failed',
+  })).toBe(false)
+  await t.mutation(internal.imports.markDispatchFailed, {
+    importId: importID, attempt: 0, failureCode: 'old_dispatch_failed',
+  })
+  const afterStale = await t.run((ctx) => ctx.db.get(importID))
+  expect(afterStale?.status).toBe('queued')
+  expect(afterStale?.mediaStorageId).toBe(validStorageID)
   const duplicate = await t.mutation(internal.imports.commitVideoUploadForOwner, {
     ownerAuthUserId: 'owner', importId: importID, storageId: validStorageID, contentType: 'video/mp4',
   })
@@ -73,4 +83,8 @@ test('invalid stored media cannot consume an import retry; a valid upload commit
   })
   expect(otherOwner).toBeNull()
   expect((await t.run((ctx) => ctx.db.get(importID)))?.uploadAttemptCount).toBe(1)
+  expect(await t.mutation(internal.imports.acceptCallback, {
+    importId: importID, attempt: 1, status: 'processing',
+  })).toBe(true)
+  expect((await t.run((ctx) => ctx.db.get(importID)))?.status).toBe('processing')
 })
