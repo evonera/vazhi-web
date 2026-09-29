@@ -28,7 +28,8 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => betterAuth({
   // Do not trust caller-controlled forwarded-IP headers at the public Convex
   // origin. Until signed edge identity is available, use conservative shared
   // endpoint buckets; never persist a visitor's raw IP address.
-  advanced: { ipAddress: { ipAddressHeaders: [] } },
+  // Keep CSRF/origin checks active in tests as well as production.
+  advanced: { disableOriginCheck: false, ipAddress: { ipAddressHeaders: [] } },
   rateLimit: {
     enabled: true,
     window: 60,
@@ -107,6 +108,27 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => betterAuth({
       clientId: process.env.APPLE_SERVICE_ID ?? '',
       clientSecret: process.env.APPLE_CLIENT_SECRET ?? '',
       appBundleIdentifier: process.env.APPLE_BUNDLE_ID,
+      // Apple can omit the email claim after the first authorization. Recover
+      // it only from the user already linked to this verified Apple subject;
+      // never accept an unverified email supplied by the native request.
+      mapProfileToUser: async (profile) => {
+        if (profile.email || !profile.sub) return {}
+        const account = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+          model: 'account',
+          where: [
+            { field: 'accountId', value: profile.sub },
+            { field: 'providerId', value: 'apple' },
+          ],
+        })
+        if (typeof account?.userId !== 'string') return {}
+        const user = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+          model: 'user',
+          where: [{ field: '_id', value: account.userId }],
+        })
+        return typeof user?.email === 'string' && user.email
+          ? { email: user.email, emailVerified: user.emailVerified === true }
+          : {}
+      },
     },
     ...(authCapabilities().google ? { google: {
       clientId: process.env.GOOGLE_CLIENT_ID!, clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
