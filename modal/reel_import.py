@@ -115,17 +115,26 @@ def download_upload(media_url: str, destination: Path) -> None:
 def prepare_audio_and_frames(video_path: Path, working_dir: Path) -> tuple[bytes, list[dict[str, object]], float, dict[str, object]]:
     duration = probe_duration(video_path)
     audio_path = working_dir / "audio.wav"
-    audio_stream = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", str(video_path)],
-        check=True, capture_output=True, text=True, timeout=20,
-    ).stdout.strip()
+    audio_stream = ""
+    audio_extraction_failed = False
+    try:
+        audio_stream = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", str(video_path)],
+            check=True, capture_output=True, text=True, timeout=20,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        # A damaged or unusual audio stream must not discard usable frames.
+        audio_extraction_failed = True
     audio = b""
     if audio_stream:
-        subprocess.run(
-            ["ffmpeg", "-nostdin", "-y", "-i", str(video_path), "-t", str(MAX_VIDEO_DURATION), "-vn", "-ac", "1", "-ar", "16000", str(audio_path)],
-            check=True, capture_output=True, timeout=60,
-        )
-        audio = audio_path.read_bytes()
+        try:
+            subprocess.run(
+                ["ffmpeg", "-nostdin", "-y", "-i", str(video_path), "-t", str(MAX_VIDEO_DURATION), "-vn", "-ac", "1", "-ar", "16000", str(audio_path)],
+                check=True, capture_output=True, timeout=60,
+            )
+            audio = audio_path.read_bytes()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            audio_extraction_failed = True
     frames_dir = working_dir / "frames"
     frames_dir.mkdir()
     subprocess.run(
@@ -141,17 +150,22 @@ def prepare_audio_and_frames(video_path: Path, working_dir: Path) -> tuple[bytes
         raise ValueError("empty_video")
     audio_has_energy = False
     if audio:
-        with wave.open(str(audio_path), "rb") as wav_file:
-            pcm = wav_file.readframes(wav_file.getnframes())
-            if pcm:
-                import array
-                samples = array.array("h")
-                samples.frombytes(pcm)
-                if os.sys.byteorder != "little":
-                    samples.byteswap()
-                rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
-                # About -60 dBFS: keep quiet speech while ignoring digital silence.
-                audio_has_energy = rms >= 32
+        try:
+            with wave.open(str(audio_path), "rb") as wav_file:
+                pcm = wav_file.readframes(wav_file.getnframes())
+                if pcm:
+                    import array
+                    samples = array.array("h")
+                    samples.frombytes(pcm)
+                    if os.sys.byteorder != "little":
+                        samples.byteswap()
+                    rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+                    # About -60 dBFS: keep quiet speech while ignoring digital silence.
+                    audio_has_energy = rms >= 32
+        except (wave.Error, EOFError, OSError):
+            # ffmpeg can succeed but write a damaged WAV; keep the video.
+            audio = b""
+            audio_extraction_failed = True
     signals: dict[str, object] = {
         "audioTrackDetected": bool(audio_stream),
         "audioHasEnergy": audio_has_energy,
@@ -159,6 +173,9 @@ def prepare_audio_and_frames(video_path: Path, working_dir: Path) -> tuple[bytes
         "visibleTextDetected": False,
         "audioTranscriptDetected": False,
     }
+    # Internal-only flag, removed before the callback's validated signals.
+    if audio_extraction_failed:
+        signals["audioExtractionFailed"] = True
     return audio, frames, duration, signals
 
 
@@ -285,6 +302,8 @@ def analyze_media(
         transcript = ""
         language = "unknown"
         warnings: list[str] = []
+        if signals.pop("audioExtractionFailed", False):
+            warnings.append("audio_extraction_unavailable")
         if audio_path is not None and signals.get("audioHasEnergy"):
             try:
                 if _asr_model is None:
@@ -318,10 +337,19 @@ def analyze_media(
             messages, tokenize=True, add_generation_prompt=True, return_dict=True, return_tensors="pt",
         )
         inputs = {key: value.to(vision.device) if hasattr(value, "to") else value for key, value in inputs.items()}
-        output = vision.generate(**inputs, max_new_tokens=800, do_sample=False)
         prompt_length = inputs["input_ids"].shape[-1]
+        output = vision.generate(**inputs, max_new_tokens=800, do_sample=False)
         model_text = processor.decode(output[0][prompt_length:], skip_special_tokens=True)
-        candidates, visible_text_detected = normalize_analysis(model_text, duration)
+        try:
+            candidates, visible_text_detected = normalize_analysis(model_text, duration)
+        except (ValueError, json.JSONDecodeError):
+            # Retry only when the response actually hit the generation ceiling.
+            # Do not "repair" partial JSON into unsupported place claims.
+            if output.shape[-1] - prompt_length < 800:
+                raise
+            output = vision.generate(**inputs, max_new_tokens=1500, do_sample=False)
+            model_text = processor.decode(output[0][prompt_length:], skip_special_tokens=True)
+            candidates, visible_text_detected = normalize_analysis(model_text, duration)
         signals["visibleTextDetected"] = visible_text_detected
         for item in candidates:
             frame_index = None
