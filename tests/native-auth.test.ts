@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
+import { generateKeyPairSync, sign } from 'node:crypto'
 import { convexTest } from 'convex-test'
 import schema from '../convex/schema'
 import { internal } from '../convex/_generated/api'
@@ -8,6 +9,47 @@ import rateLimiter from '@convex-dev/rate-limiter/test'
 
 const modules = import.meta.glob('../convex/**/*.ts')
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals() })
+
+test('returning Apple sign-in recovers email only from its linked account', async () => {
+  vi.stubEnv('SITE_URL', 'https://vazhi.test')
+  vi.stubEnv('CONVEX_SITE_URL', 'https://backend.convex.site')
+  vi.stubEnv('BETTER_AUTH_SECRET', 'test-secret-at-least-thirty-two-characters-long')
+  vi.stubEnv('APPLE_BUNDLE_ID', 'com.evonera.vazhi')
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'test-key', alg: 'ES256', use: 'sig' }
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) === 'https://appleid.apple.com/auth/keys') {
+      return new Response(JSON.stringify({ keys: [jwk] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    throw new Error(`Unexpected network request: ${String(input)}`)
+  }))
+  const appleToken = (subject: string) => {
+    const now = Math.floor(Date.now() / 1000)
+    const header = Buffer.from(JSON.stringify({ alg: 'ES256', kid: 'test-key' })).toString('base64url')
+    const payload = Buffer.from(JSON.stringify({ iss: 'https://appleid.apple.com', aud: 'com.evonera.vazhi', sub: subject, iat: now, exp: now + 300 })).toString('base64url')
+    const message = `${header}.${payload}`
+    return `${message}.${sign('sha256', Buffer.from(message), { key: privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url')}`
+  }
+
+  const t = convexTest(schema, modules)
+  betterAuth.register(t); rateLimiter.register(t)
+  const user = await t.mutation(components.betterAuth.adapter.create, { input: { model: 'user', data: { name: 'Returning Owner', email: 'owner@example.test', emailVerified: true, createdAt: Date.now(), updatedAt: Date.now() } } })
+  await t.mutation(components.betterAuth.adapter.create, { input: { model: 'account', data: { accountId: 'known-apple-subject', providerId: 'apple', userId: user._id, createdAt: Date.now(), updatedAt: Date.now() } } })
+  const post = (subject: string, cookie?: string) => t.fetch('/api/auth/sign-in/social', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+    body: JSON.stringify({ provider: 'apple', disableRedirect: true, idToken: { token: appleToken(subject) } }),
+  })
+
+  // Browser cookies on a native request cause Better Auth's origin check to
+  // reject the request before Apple token validation.
+  expect((await post('known-apple-subject', 'better-auth.session_token=old')).status).toBe(403)
+  const returning = await post('known-apple-subject')
+  expect(returning.status).toBe(200)
+  expect((await returning.json()).user).toMatchObject({ id: user._id, email: 'owner@example.test' })
+  // A verified but unknown Apple subject cannot borrow another user's email.
+  expect((await post('unknown-apple-subject')).status).toBe(401)
+}, 20_000)
 
 test('native grant is single-use, verifier-bound and expires', async () => {
   vi.useFakeTimers()
