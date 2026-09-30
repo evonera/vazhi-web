@@ -1,5 +1,6 @@
 export const AI_PROVIDER_TIMEOUT_MS = 15_000
 export const AI_PROVIDER_MAX_COMPLETION_TOKENS = 900
+export const AI_PROVIDER_ENDPOINT = 'https://api.openai.com/v1/chat/completions'
 
 /**
  * Quota is consumed when a provider request starts. A transient failure may
@@ -21,13 +22,16 @@ export type AIProviderConfiguration = {
 
 export function parseAIProviderConfiguration(environment: Record<string, string | undefined>): AIProviderConfiguration | null {
   const apiKey = environment.AI_CLOUD_API_KEY?.trim()
-  const endpoint = environment.AI_CLOUD_API_URL?.trim() || 'https://api.openai.com/v1/chat/completions'
+  const endpoint = environment.AI_CLOUD_API_URL?.trim() || AI_PROVIDER_ENDPOINT
   const model = environment.AI_CLOUD_MODEL?.trim() || 'gpt-4.1-mini'
   if (!apiKey || apiKey.length > 4_096 || !model || model.length > 160 || endpoint.length > 2_048) return null
   try {
     const url = new URL(endpoint)
-    if (url.protocol !== 'https:' || url.username || url.password || url.hash) return null
-    return { apiKey, endpoint: url.toString(), model }
+    // The native consent and policy name OpenAI. A configurable compatible
+    // provider cannot silently receive journal data under that consent.
+    if (url.origin !== 'https://api.openai.com' || url.pathname !== '/v1/chat/completions' ||
+        url.username || url.password || url.search || url.hash) return null
+    return { apiKey, endpoint: AI_PROVIDER_ENDPOINT, model }
   } catch {
     return null
   }

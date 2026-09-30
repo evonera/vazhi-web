@@ -27,6 +27,15 @@ export default defineSchema({
     sessionToken: v.string(),
     expiresAt: v.number(),
   }).index('by_codeHash', ['codeHash']),
+  // Server-only encrypted Apple refresh tokens used solely to revoke consent
+  // when deleting an account. Never included in owner/public projections.
+  appleRevocationCredentials: defineTable({
+    ownerAuthUserId: v.string(),
+    appleSubject: v.string(),
+    clientID: v.string(),
+    encryptedRefreshToken: v.string(),
+    updatedAt: v.number(),
+  }).index('by_ownerAuthUserId', ['ownerAuthUserId']),
   journeys: defineTable({
     ownerAuthUserId: v.string(),
     localID: v.string(),

@@ -122,6 +122,13 @@ describe('cloud AI provider and quota policy', () => {
     })
     expect(parseAIProviderConfiguration({ AI_CLOUD_API_KEY: 'secret', AI_CLOUD_API_URL: 'http://localhost:8000' })).toBeNull()
     expect(parseAIProviderConfiguration({ AI_CLOUD_API_KEY: '', AI_CLOUD_API_URL: 'https://example.com' })).toBeNull()
+    for (const endpoint of [
+      'https://compatible.example/v1/chat/completions',
+      'https://api.openai.com.example/v1/chat/completions',
+      'https://api.openai.com:8443/v1/chat/completions',
+      'https://api.openai.com/v1/chat/completions?forward=other',
+      'https://api.openai.com/v1/responses',
+    ]) expect(parseAIProviderConfiguration({ AI_CLOUD_API_KEY: 'secret', AI_CLOUD_API_URL: endpoint })).toBeNull()
     expect(AI_PROVIDER_MAX_COMPLETION_TOKENS).toBeLessThanOrEqual(900)
     expect(AI_PROVIDER_TIMEOUT_MS).toBeLessThanOrEqual(15_000)
   })

@@ -11,6 +11,7 @@ import schema from './schema'
 import { internal } from '../_generated/api'
 import { authCapabilities, deliverAuthEmail } from './configuration'
 import { RateLimiter } from '@convex-dev/rate-limiter'
+import { revokeAppleCredentialForDeletion } from '../appleTokenRevocation'
 
 const authLimiter = new RateLimiter(components.rateLimiter, {})
 
@@ -87,6 +88,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => betterAuth({
         await (ctx as GenericActionCtx<DataModel>).runMutation(internal.accountDeletion.prepare, {
           ownerAuthUserId: user.id,
         })
+        // Never retain token material after deletion just to retry a provider.
+        // Legacy/missing tokens use the documented manual-revocation guidance.
+        await revokeAppleCredentialForDeletion(ctx as GenericActionCtx<DataModel>, user.id)
       },
       afterDelete: async (user) => {
         try {

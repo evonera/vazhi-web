@@ -10,7 +10,7 @@
 
 .turnstile-field p {
   margin: 0;
-  color: #4d4145;
-  font-size: .82rem;
-  line-height: 1.35;
+  color: var(--supporting);
+  font-size: .875rem;
+  line-height: 1.5;
 }

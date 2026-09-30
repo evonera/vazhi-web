@@ -3,6 +3,7 @@ import { internalMutation, internalQuery, mutation, query } from './_generated/s
 import { authComponent } from './betterAuth/auth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
+import { accountMayAcceptWork } from './accountDeletion'
 
 const reservedHandles = new Set([
   'about', 'admin', 'api', 'ask', 'contact', 'download', 'help', 'inbox',
@@ -96,6 +97,7 @@ export const getForOwner = internalQuery({
 export const saveForOwner = internalMutation({
   args: { ownerAuthUserId: v.string(), ...editable },
   handler: async (ctx, args) => {
+    if (!await accountMayAcceptWork(ctx, args.ownerAuthUserId)) throw new ConvexError('This account is no longer available.')
     if (args.displayName && args.displayName.trim().length > 40) throw new ConvexError('Display name is too long.')
     if (args.bio && args.bio.trim().length > 160) throw new ConvexError('Bio is too long.')
     const handle = normalizedHandle(args.handle)

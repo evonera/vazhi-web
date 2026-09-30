@@ -3,13 +3,23 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from reel_import import prepare_audio_and_frames
+from reel_import import analyze_media, prepare_audio_and_frames
 
 
 class ReelImportWorkerTests(unittest.TestCase):
+    def test_initial_callback_failure_does_not_mask_recovery_with_uninitialized_cleanup(self):
+        callback = AsyncMock(side_effect=[RuntimeError("initial callback unavailable"), None])
+        with patch("reel_import.post_callback", callback):
+            analyze_media.local("import-123", 0, "https://backend.example/callback", b"", [], 1.0, {})
+
+        self.assertEqual(callback.await_count, 2)
+        self.assertEqual(callback.await_args_list[0].args[1]["status"], "processing")
+        self.assertEqual(callback.await_args_list[1].args[1]["status"], "failed")
+        self.assertEqual(callback.await_args_list[1].args[1]["failureCode"], "analysis_failed")
+
     def test_bad_audio_track_preserves_video_frames(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

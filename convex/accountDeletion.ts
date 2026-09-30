@@ -1,8 +1,20 @@
 import { v } from 'convex/values'
 import type { Id } from './_generated/dataModel'
-import type { MutationCtx } from './_generated/server'
+import type { MutationCtx, QueryCtx } from './_generated/server'
 import { internalMutation } from './_generated/server'
 import { internal } from './_generated/api'
+import { authComponent } from './betterAuth/auth'
+
+/** Recheck the real Better Auth component in the committing transaction. */
+export async function accountDeletionRequested(ctx: MutationCtx | QueryCtx, ownerAuthUserId: string) {
+  const job = await ctx.db.query('accountDeletionJobs')
+    .withIndex('by_ownerAuthUserId', q => q.eq('ownerAuthUserId', ownerAuthUserId)).first()
+  return Boolean(job)
+}
+
+export async function accountMayAcceptWork(ctx: MutationCtx | QueryCtx, ownerAuthUserId: string) {
+  return !await accountDeletionRequested(ctx, ownerAuthUserId) && Boolean(await authComponent.getAnyUserById(ctx, ownerAuthUserId))
+}
 
 // Dependents precede their parents so ownership remains verifiable throughout
 // the purge. Each scheduled mutation paginates one bounded table page.
@@ -13,6 +25,7 @@ const phases = [
   'syncedMoments', 'syncedJourneys', 'syncedOutboxJobs', 'aiUsageEvents',
   // Append new phases: active deletion jobs persist the numeric phase index.
   'profileHandleAliases', 'profiles', 'nativeAuthGrants', 'reelImports', 'recommendationSubmissions',
+  'appleRevocationCredentials',
 ] as const
 
 type Phase = typeof phases[number]
@@ -87,7 +100,17 @@ export const activate = internalMutation({
   handler: async (ctx, { ownerAuthUserId }) => {
     const job = await ctx.db.query('accountDeletionJobs')
       .withIndex('by_ownerAuthUserId', (q) => q.eq('ownerAuthUserId', ownerAuthUserId)).first()
-    if (!job) throw new Error('Account deletion job is missing.')
+    if (!job) {
+      // Recovery may release a pending fence while a slow auth deletion is
+      // still in flight. Its successful afterDelete must recreate the purge.
+      // Never recreate it for an account that is actually still alive.
+      if (await authComponent.getAnyUserById(ctx, ownerAuthUserId)) return
+      const jobId = await ctx.db.insert('accountDeletionJobs', {
+        ownerAuthUserId, state: 'active', phase: 0, createdAt: Date.now(),
+      })
+      await ctx.scheduler.runAfter(0, internal.accountDeletion.purgeNext, { jobId })
+      return
+    }
     if (job.state === 'pending') await ctx.db.patch(job._id, { state: 'active' })
     await ctx.scheduler.runAfter(0, internal.accountDeletion.purgeNext, { jobId: job._id })
   },
@@ -98,8 +121,13 @@ export const recover = internalMutation({
   handler: async (ctx, { jobId }) => {
     const job = await ctx.db.get(jobId)
     if (!job || job.state !== 'pending') return
-    const user = await ctx.db.get(job.ownerAuthUserId as Id<'user'>)
-    if (user) return // Better Auth rejected or did not finish deletion.
+    const user = await authComponent.getAnyUserById(ctx, job.ownerAuthUserId)
+    if (user) {
+      // A failed auth deletion must never purge a live account. Release the
+      // temporary write fence so the owner can continue and retry deletion.
+      await ctx.db.delete(jobId)
+      return
+    }
     await ctx.db.patch(jobId, { state: 'active' })
     await ctx.scheduler.runAfter(0, internal.accountDeletion.purgeNext, { jobId })
   },

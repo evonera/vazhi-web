@@ -6,6 +6,7 @@ import type { GenericCtx } from '@convex-dev/better-auth/utils'
 import type { DataModel } from './_generated/dataModel'
 import { RateLimiter, DAY } from '@convex-dev/rate-limiter'
 import { components, internal } from './_generated/api'
+import { accountDeletionRequested } from './accountDeletion'
 import { isCurrentRouteRevision, validatePrivatePathRouteInput } from '../src/lib/pathRoutingValidation'
 import { isUsableCachedRouteSnapshot, isValidRouteSnapshot, parseGoogleRouteResponse } from './routeResponseValidation'
 
@@ -154,6 +155,7 @@ export const storedStopsForOwner = internalQuery({
 export const saveSnapshotForOwner = internalMutation({
   args: { ownerAuthUserId: v.string(), pathId: v.id('paths'), routeRevision: v.number(), travelMode, snapshot },
   handler: async (ctx, args) => {
+    if (await accountDeletionRequested(ctx, args.ownerAuthUserId)) throw new ConvexError('This account is being deleted.')
     const path = await ctx.db.get(args.pathId)
     if (!path || path.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Path not found.')
     if (!isCurrentRouteRevision(path.routeRevision ?? 0, args.routeRevision)) {

@@ -1,7 +1,8 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { convexTest } from 'convex-test'
 import schema from '../convex/schema'
-import { internal } from '../convex/_generated/api'
+import { components, internal } from '../convex/_generated/api'
+import betterAuth from '@convex-dev/better-auth/test'
 
 const modules = import.meta.glob('../convex/**/*.ts')
 
@@ -10,15 +11,16 @@ afterEach(() => vi.useRealTimers())
 test('account deletion removes owned descendants and leaves another account intact', async () => {
   vi.useFakeTimers()
   const t = convexTest(schema, modules)
+  betterAuth.register(t)
+  const owner = await t.mutation(components.betterAuth.adapter.create, { input: { model: 'user', data: {
+    name: 'Owner', email: 'owner@example.test', emailVerified: true, createdAt: 1, updatedAt: 1,
+  } } })
+  const other = await t.mutation(components.betterAuth.adapter.create, { input: { model: 'user', data: {
+    name: 'Other', email: 'other@example.test', emailVerified: true, createdAt: 1, updatedAt: 1,
+  } } })
   const { ownerID, ownedMediaID, otherMediaID } = await t.run(async (ctx) => {
-    const ownerID = await ctx.db.insert('user', {
-      name: 'Owner', email: 'owner@example.test', emailVerified: true,
-      createdAt: 1, updatedAt: 1,
-    })
-    const otherID = await ctx.db.insert('user', {
-      name: 'Other', email: 'other@example.test', emailVerified: true,
-      createdAt: 1, updatedAt: 1,
-    })
+    const ownerID = String(owner._id)
+    const otherID = String(other._id)
     const journey = await ctx.db.insert('journeys', {
       ownerAuthUserId: ownerID, localID: 'owned', title: 'Owned', destination: 'Kochi',
       askRequestCount: 1, openAskRequestCount: 1, recommendationCount: 1,
@@ -98,7 +100,7 @@ test('account deletion removes owned descendants and leaves another account inta
   })
 
   await t.mutation(internal.accountDeletion.prepare, { ownerAuthUserId: ownerID })
-  await t.run(async (ctx) => ctx.db.delete(ownerID)) // Better Auth deletes the auth user first.
+  await t.mutation(components.betterAuth.adapter.deleteOne, { input: { model: 'user', where: [{ field: '_id', value: ownerID }] } })
   await t.mutation(internal.accountDeletion.activate, { ownerAuthUserId: ownerID })
   await t.finishAllScheduledFunctions(vi.runAllTimers)
 
@@ -135,16 +137,15 @@ test('account deletion removes owned descendants and leaves another account inta
 test('recovery finishes cleanup after auth deletion when the post-delete hook is interrupted', async () => {
   vi.useFakeTimers()
   const t = convexTest(schema, modules)
-  const ownerID = await t.run(async (ctx) => {
-    const id = await ctx.db.insert('user', {
+  betterAuth.register(t)
+  const owner = await t.mutation(components.betterAuth.adapter.create, { input: { model: 'user', data: {
       name: 'Owner', email: 'owner@example.test', emailVerified: true,
       createdAt: 1, updatedAt: 1,
-    })
-    await ctx.db.insert('profiles', { ownerAuthUserId: id, isPublic: true, updatedAt: 1 })
-    return id
-  })
+  } } })
+  const ownerID = String(owner._id)
+  await t.run(ctx => ctx.db.insert('profiles', { ownerAuthUserId: ownerID, isPublic: true, updatedAt: 1 }))
   await t.mutation(internal.accountDeletion.prepare, { ownerAuthUserId: ownerID })
-  await t.run(async (ctx) => ctx.db.delete(ownerID))
+  await t.mutation(components.betterAuth.adapter.deleteOne, { input: { model: 'user', where: [{ field: '_id', value: ownerID }] } })
   await t.finishAllScheduledFunctions(vi.runAllTimers)
   const remaining = await t.run(async (ctx) => ({
     profiles: await ctx.db.query('profiles').collect(),
@@ -152,4 +153,43 @@ test('recovery finishes cleanup after auth deletion when the post-delete hook is
   }))
   expect(remaining.profiles).toHaveLength(0)
   expect(remaining.jobs).toHaveLength(0)
+})
+
+test('recovery never purges a still-live Better Auth component account', async () => {
+  vi.useFakeTimers()
+  const t = convexTest(schema, modules)
+  betterAuth.register(t)
+  const owner = await t.mutation(components.betterAuth.adapter.create, { input: { model: 'user', data: {
+    name: 'Owner', email: 'owner@example.test', emailVerified: true, createdAt: 1, updatedAt: 1,
+  } } })
+  const ownerAuthUserId = String(owner._id)
+  await t.run(ctx => ctx.db.insert('profiles', { ownerAuthUserId, isPublic: true, updatedAt: 1 }))
+  await t.mutation(internal.accountDeletion.prepare, { ownerAuthUserId })
+  // Simulate auth deletion failing after beforeDelete prepared its recovery.
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+  expect(await t.run(ctx => ctx.db.query('profiles').collect())).toHaveLength(1)
+  expect(await t.run(ctx => ctx.db.query('accountDeletionJobs').collect())).toHaveLength(0)
+})
+
+test('successful slow auth deletion recreates a purge after recovery released its pending fence', async () => {
+  vi.useFakeTimers()
+  const t = convexTest(schema, modules)
+  betterAuth.register(t)
+  const owner = await t.mutation(components.betterAuth.adapter.create, { input: { model: 'user', data: {
+    name: 'Owner', email: 'slow-owner@example.test', emailVerified: true, createdAt: 1, updatedAt: 1,
+  } } })
+  const ownerAuthUserId = String(owner._id)
+  await t.run(ctx => ctx.db.insert('profiles', { ownerAuthUserId, isPublic: true, updatedAt: 1 }))
+  await t.mutation(internal.accountDeletion.prepare, { ownerAuthUserId })
+  // Auth still exists when recovery runs: preserve data and release the fence.
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+  await t.mutation(internal.accountDeletion.activate, { ownerAuthUserId })
+  expect(await t.run(ctx => ctx.db.query('accountDeletionJobs').collect())).toHaveLength(0)
+  expect(await t.run(ctx => ctx.db.query('profiles').collect())).toHaveLength(1)
+  // The same slow request then succeeds and its afterDelete callback arrives.
+  await t.mutation(components.betterAuth.adapter.deleteOne, { input: { model: 'user', where: [{ field: '_id', value: ownerAuthUserId }] } })
+  await t.mutation(internal.accountDeletion.activate, { ownerAuthUserId })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+  expect(await t.run(ctx => ctx.db.query('profiles').collect())).toHaveLength(0)
+  expect(await t.run(ctx => ctx.db.query('accountDeletionJobs').collect())).toHaveLength(0)
 })

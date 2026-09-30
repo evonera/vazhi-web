@@ -41,3 +41,41 @@ test('profiles show only public guides and immutable guide versions can be repor
   await page.getByRole('button', { name: 'Send report' }).click()
   await expect(page.getByRole('status')).toHaveText('Thanks — your report was received.')
 })
+
+test('a failed report preserves the guide and entered details for retry', async ({ page }) => {
+  await page.route('**/api/listing?**', route => route.fulfill({ json: {
+    handle: 'asha', slug: 'penang-walk', visibility: 'public', versionNumber: 1,
+    title: 'Penang on foot', destination: 'George Town, Malaysia',
+    disclaimer: 'Verify travel details before visiting.', stops: [],
+  } }))
+  let requests = 0
+  await page.route('**/api/reports', route => {
+    requests++
+    return requests === 1 ? route.fulfill({ status: 503, json: { message: 'Unavailable' } }) : route.fulfill({ json: { accepted: true } })
+  })
+  await page.goto('/@asha/penang-walk')
+  await page.getByRole('button', { name: 'Report this guide' }).click()
+  await page.getByLabel('Reason').selectOption({ label: 'Private or sensitive location' })
+  await page.getByLabel('Details').fill('Please remove this private address.')
+  await page.getByRole('button', { name: 'Send report' }).click()
+  await expect(page.getByRole('alert')).toContainText('Your report could not be sent')
+  await expect(page.getByRole('heading', { name: 'Penang on foot' })).toBeVisible()
+  await expect(page.getByLabel('Details')).toHaveValue('Please remove this private address.')
+  await page.getByRole('button', { name: 'Send report' }).click()
+  await expect(page.getByRole('status')).toHaveText('Thanks — your report was received.')
+  expect(requests).toBe(2)
+})
+
+test('a report can be canceled without leaving its guide', async ({ page }) => {
+  await page.route('**/api/listing?**', route => route.fulfill({ json: {
+    handle: 'asha', slug: 'penang-walk', visibility: 'public', versionNumber: 1,
+    title: 'Penang on foot', destination: 'George Town, Malaysia',
+    disclaimer: 'Verify travel details before visiting.', stops: [],
+  } }))
+  await page.goto('/@asha/penang-walk')
+  await page.getByRole('button', { name: 'Report this guide' }).click()
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByLabel('Reason')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Penang on foot' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Report this guide' })).toBeVisible()
+})

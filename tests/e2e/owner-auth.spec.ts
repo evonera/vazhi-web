@@ -1,15 +1,28 @@
 import { expect, test } from '@playwright/test'
 
-test('email and all three providers are visible, disabled honestly until configured', async ({ page }) => {
+test('unavailable sign-in methods are hidden without developer configuration notes', async ({ page }) => {
   await page.route('**/api/owner/auth-capabilities', route => route.fulfill({ json: { email: false, apple: false, google: false, discord: false } }))
   await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }))
   await page.setViewportSize({ width: 320, height: 740 })
   await page.goto('/sign-in')
   await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible()
-  await expect(page.getByLabel('Email', { exact: true })).toBeDisabled()
-  for (const provider of ['Apple', 'Google', 'Discord']) await expect(page.getByRole('button', { name: `Continue with ${provider}`, exact: false })).toBeDisabled()
+  await expect(page.getByLabel('Email', { exact: true })).toHaveCount(0)
+  for (const provider of ['Apple', 'Google', 'Discord']) await expect(page.getByRole('button', { name: `Continue with ${provider}`, exact: false })).toHaveCount(0)
+  await expect(page.getByRole('status')).toContainText('Sign-in is temporarily unavailable')
+  await expect(page.getByText(/configuration|configured|email-service/i)).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: '/tmp/vazhi-email-sign-in-mobile.png', fullPage: true })
+})
+
+test('only live sign-in options appear and public links remain accessible', async ({ page }) => {
+  await page.route('**/api/owner/auth-capabilities', route => route.fulfill({ json: { email: false, apple: false, google: true, discord: false } }))
+  await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }))
+  await page.goto('/sign-in')
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeEnabled()
+  await expect(page.getByLabel('Email', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Continue with Discord' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Continue with Apple' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy')
 })
 
 test('email login submits through same-origin auth and enters the owner dashboard', async ({ page }) => {

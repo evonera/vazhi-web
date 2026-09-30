@@ -8,6 +8,7 @@ import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
 import { clean, sanitizePublicGuideStops } from './publicGuideSanitization'
 import { isDuplicateOpenReport, latestTakedownReportId, ownerMayTransitionListingStatus, reportHasActiveTakedown } from './moderationPolicy'
+import { accountDeletionRequested, accountMayAcceptWork } from './accountDeletion'
 
 const visibility = v.union(v.literal('public'), v.literal('unlisted'))
 const stop = v.object({
@@ -48,6 +49,7 @@ export const publishForOwner = internalMutation({
     stops: v.array(stop),
   },
   handler: async (ctx, args) => {
+    if (!await accountMayAcceptWork(ctx, args.ownerAuthUserId)) throw new ConvexError('This account is no longer available.')
     const profile = await ctx.db.query('profiles').withIndex('by_ownerAuthUserId', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId)).unique()
     if (!profile?.handle) throw new ConvexError('Claim a profile handle before publishing a guide.')
     if (args.visibility === 'public' && !profile.isPublic) throw new ConvexError('Turn on your public profile before publishing a public guide.')
@@ -222,6 +224,7 @@ export const reportPublicListing = internalMutation({
     const reason = clean(args.reason, 120, 'Report reason')
     const listing = await ctx.db.query('publicItineraryListings').withIndex('by_slug', (q) => q.eq('slug', args.listingSlug)).unique()
     if (listing) {
+      if (await accountDeletionRequested(ctx, listing.ownerAuthUserId)) return null
       const { ok } = await reportLimiter.limit(ctx, 'publicListingReport', { key: `${listing._id}:${args.rateLimitKey}` })
       if (!ok) return null
       // Only coalesce retries while a matching report is still awaiting

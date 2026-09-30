@@ -2,15 +2,20 @@ import { expect, test } from 'vitest'
 import { convexTest } from 'convex-test'
 import rateLimiterTest from '@convex-dev/rate-limiter/test'
 import schema from '../convex/schema'
-import { internal } from '../convex/_generated/api'
+import { components, internal } from '../convex/_generated/api'
+import betterAuth from '@convex-dev/better-auth/test'
 
 const modules = import.meta.glob('../convex/**/*.ts')
 
 test('worker payload always selects exactly one media input', async () => {
   const t = convexTest(schema, modules)
+  betterAuth.register(t)
+  const owner = await t.mutation(components.betterAuth.adapter.create, { input: { model: 'user', data: {
+    name: 'Owner', email: 'owner@example.test', emailVerified: true, createdAt: 1, updatedAt: 1,
+  } } })
   const { linkID, uploadID, fallbackID } = await t.run(async (ctx) => {
     const mediaStorageId = await ctx.storage.store(new Blob(['video'], { type: 'video/mp4' }))
-    const base = { ownerAuthUserId: 'owner', status: 'queued' as const, createdAt: 1, updatedAt: 1 }
+    const base = { ownerAuthUserId: String(owner._id), status: 'queued' as const, createdAt: 1, updatedAt: 1 }
     const linkID = await ctx.db.insert('reelImports', {
       ...base, idempotencyKey: 'link', sourceURL: 'https://www.instagram.com/reel/Link123/',
     })
@@ -39,10 +44,18 @@ test('worker payload always selects exactly one media input', async () => {
 
 test('invalid stored media cannot consume an import retry; a valid upload commits once', async () => {
   const t = convexTest(schema, modules)
+  betterAuth.register(t)
   rateLimiterTest.register(t)
+  const owner = await t.mutation(components.betterAuth.adapter.create, { input: { model: 'user', data: {
+    name: 'Owner', email: 'owner@example.test', emailVerified: true, createdAt: 1, updatedAt: 1,
+  } } })
+  const other = await t.mutation(components.betterAuth.adapter.create, { input: { model: 'user', data: {
+    name: 'Other', email: 'other@example.test', emailVerified: true, createdAt: 1, updatedAt: 1,
+  } } })
+  const ownerAuthUserId = String(owner._id)
   const { importID, invalidStorageID, validStorageID } = await t.run(async (ctx) => {
     const importID = await ctx.db.insert('reelImports', {
-      ownerAuthUserId: 'owner', idempotencyKey: 'fallback',
+      ownerAuthUserId, idempotencyKey: 'fallback',
       sourceURL: 'https://www.instagram.com/reel/Link123/',
       status: 'needs_media', createdAt: 1, updatedAt: 1,
     })
@@ -51,13 +64,13 @@ test('invalid stored media cannot consume an import retry; a valid upload commit
     return { importID, invalidStorageID, validStorageID }
   })
   await expect(t.mutation(internal.imports.commitVideoUploadForOwner, {
-    ownerAuthUserId: 'owner', importId: importID, storageId: invalidStorageID, contentType: 'text/plain',
+    ownerAuthUserId, importId: importID, storageId: invalidStorageID, contentType: 'text/plain',
   })).rejects.toThrow()
   const before = await t.run((ctx) => ctx.db.get(importID))
   expect(before?.uploadAttemptCount).toBeUndefined()
   expect(before?.status).toBe('needs_media')
   const accepted = await t.mutation(internal.imports.commitVideoUploadForOwner, {
-    ownerAuthUserId: 'owner', importId: importID, storageId: validStorageID, contentType: 'video/mp4',
+    ownerAuthUserId, importId: importID, storageId: validStorageID, contentType: 'video/mp4',
   })
   expect(accepted?.accepted).toBe(true)
   const after = await t.run((ctx) => ctx.db.get(importID))
@@ -75,11 +88,11 @@ test('invalid stored media cannot consume an import retry; a valid upload commit
   expect(afterStale?.status).toBe('queued')
   expect(afterStale?.mediaStorageId).toBe(validStorageID)
   const duplicate = await t.mutation(internal.imports.commitVideoUploadForOwner, {
-    ownerAuthUserId: 'owner', importId: importID, storageId: validStorageID, contentType: 'video/mp4',
+    ownerAuthUserId, importId: importID, storageId: validStorageID, contentType: 'video/mp4',
   })
   expect(duplicate?.accepted).toBe(false)
   const otherOwner = await t.mutation(internal.imports.commitVideoUploadForOwner, {
-    ownerAuthUserId: 'other', importId: importID, storageId: validStorageID, contentType: 'video/mp4',
+    ownerAuthUserId: String(other._id), importId: importID, storageId: validStorageID, contentType: 'video/mp4',
   })
   expect(otherOwner).toBeNull()
   expect((await t.run((ctx) => ctx.db.get(importID)))?.uploadAttemptCount).toBe(1)

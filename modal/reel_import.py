@@ -287,9 +287,9 @@ def analyze_media(
 ) -> None:
     from PIL import Image
 
+    audio_path: Path | None = None
     try:
         asyncio.run(post_callback(callback_url, {"importId": import_id, "attempt": attempt, "status": "processing"}))
-        audio_path: Path | None = None
         if audio:
             audio_path = Path(tempfile.gettempdir()) / f"vazhi-{import_id}.wav"
             audio_path.write_bytes(audio)
