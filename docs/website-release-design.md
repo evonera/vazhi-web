@@ -15,7 +15,7 @@ The review uses Apple-design foundations for readable text, semantic color, adap
 - Website feature copy still called the Itinerary a Path and overstated blanket privacy. User-facing copy now distinguishes private itineraries from deliberately published guides.
 - Web sign-in presented disabled, unconfigured providers and developer configuration notes. Only available methods are shown; a plain recovery message appears when none are available. Native PKCE handoff and callback validation are unchanged.
 - A failed guide report replaced the already-loaded guide with an unavailable page. Report errors now remain beside the report form, retain the selected reason/details, allow retry/cancel, and guard duplicate in-flight submissions.
-- The privacy notice omitted Modal video processing and temporary uploaded originals. It now distinguishes journal media from optional video uploads, names Modal, Convex, Google Places, RevenueCat, and optional OpenAI extraction, and explains cleanup and already-running processing after deletion. The copy is grounded in the audited processing/deletion code, not a claim of instant cancellation or a fixed cleanup SLA.
+- The privacy notice omitted Modal video processing and temporary uploaded originals. It now distinguishes journal media from optional video uploads, names Modal, Convex, Google Places, RevenueCat, and optional OpenAI highlights, and explains cleanup and already-running processing after deletion. The copy is grounded in the audited processing/deletion code, not a claim of instant cancellation or a fixed cleanup SLA.
 
 ## Shared tokens and contrast
 
