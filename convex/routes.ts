@@ -7,6 +7,7 @@ import type { DataModel } from './_generated/dataModel'
 import { RateLimiter, DAY } from '@convex-dev/rate-limiter'
 import { components, internal } from './_generated/api'
 import { isCurrentRouteRevision, validatePrivatePathRouteInput } from '../src/lib/pathRoutingValidation'
+import { isUsableCachedRouteSnapshot, isValidRouteSnapshot, parseGoogleRouteResponse } from './routeResponseValidation'
 
 const waypoint = v.object({ latitude: v.number(), longitude: v.number() })
 const routeWaypoint = v.union(v.object({ placeId: v.string() }), waypoint)
@@ -158,23 +159,32 @@ export const saveSnapshotForOwner = internalMutation({
     if (!isCurrentRouteRevision(path.routeRevision ?? 0, args.routeRevision)) {
       throw new ConvexError('Path changed while routing. Calculate the updated Path again.')
     }
+    const privateStops = await ctx.db.query('privateRouteStops')
+      .withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', args.pathId)).take(26)
+    const stopCount = privateStops.length || (await ctx.db.query('pathStops')
+      .withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', args.pathId)).take(26)).length
+    if (!isValidRouteSnapshot(args.snapshot, stopCount - 1)) {
+      throw new ConvexError('Routing returned an incomplete route.')
+    }
     const existing = await ctx.db.query('routeSnapshots')
       .withIndex('by_ownerAuthUserId_and_pathId_and_travelMode', (q) => q
         .eq('ownerAuthUserId', args.ownerAuthUserId).eq('pathId', args.pathId).eq('travelMode', args.travelMode))
       .unique()
+    const generatedAt = Date.now()
+    const storedSnapshot = { ...args.snapshot, generatedAt }
     const value = {
-      ...args.snapshot, ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId,
+      ...storedSnapshot, ownerAuthUserId: args.ownerAuthUserId, pathId: args.pathId,
       routeRevision: args.routeRevision, travelMode: args.travelMode,
-      expiresAt: args.snapshot.generatedAt + 5 * 60 * 1_000,
+      expiresAt: generatedAt + 5 * 60 * 1_000,
     }
     if (existing) {
       await ctx.db.replace(existing._id, value)
       await ctx.scheduler.runAt(value.expiresAt, internal.routes.deleteExpiredSnapshot, { snapshotID: existing._id })
-      return existing._id
+      return storedSnapshot
     }
     const snapshotID = await ctx.db.insert('routeSnapshots', value)
     await ctx.scheduler.runAt(value.expiresAt, internal.routes.deleteExpiredSnapshot, { snapshotID })
-    return snapshotID
+    return storedSnapshot
   },
 })
 
@@ -215,7 +225,12 @@ export const latestSnapshotForOwner = internalQuery({
       .withIndex('by_ownerAuthUserId_and_pathId_and_travelMode', (q) => q
         .eq('ownerAuthUserId', args.ownerAuthUserId).eq('pathId', args.pathId).eq('travelMode', args.travelMode))
       .unique()
-    return result && result.expiresAt > args.now && isCurrentRouteRevision(path.routeRevision ?? 0, result.routeRevision)
+    if (!result || !isCurrentRouteRevision(path.routeRevision ?? 0, result.routeRevision)) return null
+    const privateStops = await ctx.db.query('privateRouteStops')
+      .withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', args.pathId)).take(26)
+    const stopCount = privateStops.length || (await ctx.db.query('pathStops')
+      .withIndex('by_pathId_and_orderIndex', (q) => q.eq('pathId', args.pathId)).take(26)).length
+    return isUsableCachedRouteSnapshot(result, stopCount - 1, args.now)
       ? { distanceMeters: result.distanceMeters, duration: result.duration,
           encodedPolyline: result.encodedPolyline, legs: result.legs, generatedAt: result.generatedAt }
       : null
@@ -247,19 +262,11 @@ export const compute = internalAction({
       }),
     })
     if (!response.ok) throw new ConvexError('Routing is temporarily unavailable.')
-    const body = await response.json() as { routes?: Array<{
-      distanceMeters?: number; duration?: string; polyline?: { encodedPolyline?: string }
-      legs?: Array<{ distanceMeters?: number; duration?: string }>
-    }> }
-    const route = body.routes?.[0]
-    if (route?.distanceMeters === undefined || !route.duration || !route.polyline?.encodedPolyline) {
-      throw new ConvexError('Routing returned an incomplete route.')
-    }
+    const body: unknown = await response.json().catch(() => null)
+    const route = parseGoogleRouteResponse(body, args.stops.length - 1)
+    if (!route) throw new ConvexError('Routing returned an incomplete route.')
     return {
-      distanceMeters: route.distanceMeters, duration: route.duration,
-      encodedPolyline: route.polyline.encodedPolyline,
-      legs: (route.legs ?? []).map((leg) => ({ distanceMeters: leg.distanceMeters ?? 0, duration: leg.duration ?? '0s' })),
-      generatedAt: Date.now(),
+      ...route, generatedAt: Date.now(),
     }
   },
 })

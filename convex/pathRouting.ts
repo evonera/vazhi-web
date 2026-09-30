@@ -35,13 +35,13 @@ export const forCurrentOwner: RegisteredAction<'public', { pathID: Id<'paths'>; 
       stops: stored.stops,
       travelMode: args.travelMode,
     })
-    await ctx.runMutation(internal.routes.saveSnapshotForOwner, {
+    const saved: RouteResult = await ctx.runMutation(internal.routes.saveSnapshotForOwner, {
       ownerAuthUserId,
       pathId: args.pathID,
       routeRevision: stored.routeRevision,
       travelMode: args.travelMode,
       snapshot: result,
     })
-    return result
+    return saved
   },
 })
