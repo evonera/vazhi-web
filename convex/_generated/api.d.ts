@@ -14,6 +14,8 @@ import type * as ai from "../ai.js";
 import type * as aiProviderPolicy from "../aiProviderPolicy.js";
 import type * as aiRequestValidation from "../aiRequestValidation.js";
 import type * as aiResponseValidation from "../aiResponseValidation.js";
+import type * as appleCredentials from "../appleCredentials.js";
+import type * as appleTokenRevocation from "../appleTokenRevocation.js";
 import type * as askProjections from "../askProjections.js";
 import type * as betterAuth_auth from "../betterAuth/auth.js";
 import type * as http from "../http.js";
@@ -51,6 +53,8 @@ declare const fullApi: ApiFromModules<{
   aiProviderPolicy: typeof aiProviderPolicy;
   aiRequestValidation: typeof aiRequestValidation;
   aiResponseValidation: typeof aiResponseValidation;
+  appleCredentials: typeof appleCredentials;
+  appleTokenRevocation: typeof appleTokenRevocation;
   askProjections: typeof askProjections;
   "betterAuth/auth": typeof betterAuth_auth;
   http: typeof http;

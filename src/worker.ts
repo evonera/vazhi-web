@@ -48,7 +48,7 @@ function publicOrigin(env: Env) {
 
 function metadata(input: { title: string; description: string; canonicalURL: string; imageURL?: string }) {
   const title = escapeHTML(metadataText(input.title, 'Vazhi', 160))
-  const description = escapeHTML(metadataText(input.description, 'Capture places. Ask your people. Make the path.', 300))
+  const description = escapeHTML(metadataText(input.description, 'Capture places. Ask your people. Plan a day. A private travel journal with editable itineraries.', 300))
   const canonicalURL = escapeHTML(input.canonicalURL)
   const image = input.imageURL
     ? `<meta property="og:image" content="${escapeHTML(input.imageURL)}"><meta property="og:image:width" content="1080"><meta property="og:image:height" content="1920">`
@@ -169,7 +169,7 @@ async function requestMetadata(url: URL, env: Env) {
   if (url.pathname === '/download') {
     return metadata({
       title: 'Download Vazhi for iPhone',
-      description: 'Capture places, ask your people, and make a path with Vazhi. Android is coming soon.',
+      description: 'Capture places, ask your people, and plan a day with Vazhi. Android is coming soon.',
       canonicalURL: `${origin}/download`,
     })
   }

@@ -14,6 +14,7 @@ import {
   parseAIProviderConfiguration,
 } from './aiProviderPolicy'
 import { parseCloudAISuggestionRequest } from './aiRequestValidation'
+import { accountMayAcceptWork } from './accountDeletion'
 
 const rateLimiter = new RateLimiter(components.rateLimiter, {
   cloudSuggestions: { kind: 'token bucket', rate: 10, period: HOUR, capacity: 10 },
@@ -46,12 +47,13 @@ export const recordUsage = internalMutation({
   handler: async (ctx, args) => {
     // This deliberately stores no prompts, source IDs, notes, coordinates,
     // provider payloads or provider responses.
+    if (!await accountMayAcceptWork(ctx, args.ownerAuthUserId)) return null
     await ctx.db.insert('aiUsageEvents', { ...args, createdAt: Date.now() })
   },
 })
 
 /**
- * Calls an OpenAI-compatible provider using only the owner-approved projection.
+ * Calls the disclosed OpenAI endpoint using only the owner-approved projection.
  * Configuration and local validation happen before quota is consumed. Once a
  * provider call starts, every outcome consumes quota because it may incur cost.
  */
@@ -129,6 +131,7 @@ export async function generateSuggestionsForOwner(ctx: ActionCtx, args: Generate
     try {
       const response = await fetch(configuration.endpoint, {
         method: 'POST',
+        redirect: 'error',
         signal: controller.signal,
         headers: {
           'content-type': 'application/json',
@@ -178,7 +181,7 @@ export async function generateSuggestionsForOwner(ctx: ActionCtx, args: Generate
       outcome = 'success'
       await ctx.runMutation(internal.ai.recordUsage, {
         ownerAuthUserId: args.ownerAuthUserId,
-        provider: 'openai-compatible',
+        provider: 'openai',
         model: configuration.model,
         outcome,
       })
@@ -187,7 +190,7 @@ export async function generateSuggestionsForOwner(ctx: ActionCtx, args: Generate
       outcome = error instanceof InvalidProviderOutputError ? 'invalid_response' : 'provider_failure'
       await ctx.runMutation(internal.ai.recordUsage, {
         ownerAuthUserId: args.ownerAuthUserId,
-        provider: 'openai-compatible',
+        provider: 'openai',
         model: configuration.model,
         outcome,
       })

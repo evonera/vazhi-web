@@ -3,10 +3,13 @@ import { httpAction } from './_generated/server'
 import { internal, components } from './_generated/api'
 import { createAuth } from './betterAuth/auth'
 import { MINUTE, RateLimiter } from '@convex-dev/rate-limiter'
+import { exchangeAppleAuthorizationCode, nativeAppleTokenConfiguration } from './appleTokenRevocation'
+import { readBoundedRequestBody } from '../src/lib/boundedRequestBody'
 
 const limits = new RateLimiter(components.rateLimiter, {
   nativeAuthorize: { kind: 'token bucket', rate: 10, period: MINUTE, capacity: 10 },
   nativeExchange: { kind: 'token bucket', rate: 500, period: MINUTE, capacity: 500 },
+  nativeAppleCredentials: { kind: 'token bucket', rate: 10, period: MINUTE, capacity: 10 },
 })
 
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
@@ -23,6 +26,28 @@ async function input(request: Request): Promise<Record<string, unknown>> {
 }
 
 export function registerNativeAuth(http: HttpRouter) {
+  http.route({ path: '/api/native/apple/credentials', method: 'POST', handler: httpAction(async (ctx, request) => {
+    // This optional step never changes or creates a sign-in session. Failure
+    // leaves the existing Apple/Better Auth sign-in usable.
+    try {
+      if (request.headers.get('cookie') || request.headers.get('origin')) return reply({}, 403)
+      const session = await createAuth(ctx).api.getSession({ headers: request.headers })
+      if (!session) return reply({ stored: false }, 401)
+      if (!nativeAppleTokenConfiguration()) return reply({ stored: false }, 503)
+      if (!(await limits.limit(ctx, 'nativeAppleCredentials', { key: session.user.id })).ok) return reply({ stored: false }, 429)
+      const raw = await readBoundedRequestBody(request, 8_192)
+      if (raw === null) return reply({ stored: false }, 413)
+      const body: unknown = JSON.parse(raw)
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return reply({ stored: false }, 400)
+      const value = body as Record<string, unknown>
+      if (typeof value.authorizationCode !== 'string' || !value.authorizationCode || value.authorizationCode.length > 1_024 ||
+          typeof value.identityToken !== 'string' || !value.identityToken || value.identityToken.length > 6_144) return reply({ stored: false }, 400)
+      const credential = await exchangeAppleAuthorizationCode(value.authorizationCode, value.identityToken)
+      if (!credential) return reply({ stored: false }, 400)
+      const stored = await ctx.runMutation(internal.appleCredentials.save, { ownerAuthUserId: session.user.id, ...credential })
+      return reply({ stored }, stored ? 200 : 403)
+    } catch { return reply({ stored: false }, 400) }
+  }) })
   http.route({ path: '/api/native/authorize', method: 'POST', handler: httpAction(async (ctx, request) => {
     try {
       // Cookies only from our website, protected by a mandatory Origin check.

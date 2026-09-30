@@ -3,6 +3,14 @@ import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components, internal } from './_generated/api'
 import { MutationCtx, internalAction, internalMutation, internalQuery } from './_generated/server'
 import { MAX_REEL_VIDEO_BYTES } from '../src/lib/reelImportHTTP'
+import { accountMayAcceptWork } from './accountDeletion'
+import { authComponent } from './betterAuth/auth'
+
+async function requireLiveOwner(ctx: MutationCtx, ownerAuthUserId: string) {
+  if (!await accountMayAcceptWork(ctx, ownerAuthUserId)) {
+    throw new ConvexError('This account is being deleted or is no longer available.')
+  }
+}
 
 const importLimiter = new RateLimiter(components.rateLimiter, {
   ownerReelImport: { kind: 'token bucket', rate: 5, period: 24 * HOUR, capacity: 5 },
@@ -39,6 +47,7 @@ async function applyUploadAttemptLimit(ctx: MutationCtx, ownerAuthUserId: string
 export const createLinkForOwner = internalMutation({
   args: { ownerAuthUserId: v.string(), idempotencyKey: v.string(), sourceURL: v.string() },
   handler: async (ctx, args) => {
+    await requireLiveOwner(ctx, args.ownerAuthUserId)
     if (!validIdempotencyKey(args.idempotencyKey)) throw new ConvexError('Invalid import request.')
     const sourceURL = canonicalInstagramURL(args.sourceURL)
     const existing = await ctx.db.query('reelImports')
@@ -74,6 +83,7 @@ export const commitVideoUploadForOwner = internalMutation({
     contentType: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireLiveOwner(ctx, args.ownerAuthUserId)
     if (Boolean(args.importId) === Boolean(args.idempotencyKey)) throw new ConvexError('Invalid upload request.')
     if (args.idempotencyKey && !validIdempotencyKey(args.idempotencyKey)) throw new ConvexError('Invalid import request.')
     const sourceURL = args.sourceURL ? canonicalInstagramURL(args.sourceURL) : undefined
@@ -135,6 +145,11 @@ export const dispatchPayload = internalQuery({
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.importId)
     if (!record || record.status !== 'queued') return null
+    // The HTTP owner check may have happened before deletion started. Avoid
+    // handing fresh media to a worker while the bounded purge catches up.
+    const deletion = await ctx.db.query('accountDeletionJobs')
+      .withIndex('by_ownerAuthUserId', q => q.eq('ownerAuthUserId', record.ownerAuthUserId)).first()
+    if (deletion || !await authComponent.getAnyUserById(ctx, record.ownerAuthUserId)) return null
     const mediaURL = record.mediaStorageId ? await ctx.storage.getUrl(record.mediaStorageId) : null
     // An uploaded video supersedes the original link for worker input. Keep
     // sourceURL on the record for the owner's import history, but never send
@@ -148,6 +163,7 @@ export const markDispatched = internalMutation({
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.importId)
     if (!record || record.status !== 'queued' || (record.dispatchAttempt ?? 0) !== args.attempt) return null
+    if (!await accountMayAcceptWork(ctx, record.ownerAuthUserId)) return null
     await ctx.db.patch(record._id, { status: 'processing', updatedAt: Date.now() })
     return null
   },
@@ -227,6 +243,7 @@ export const acceptCallback = internalMutation({
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.importId)
     if (!record || !['queued', 'processing'].includes(record.status) || (record.dispatchAttempt ?? 0) !== args.attempt) return false
+    if (!await accountMayAcceptWork(ctx, record.ownerAuthUserId)) return false
     const now = Date.now()
     if (args.status === 'processing') {
       await ctx.db.patch(record._id, { status: 'processing', updatedAt: now })
@@ -272,6 +289,9 @@ export const candidatesForResolution = internalQuery({
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.importId)
     if (!record || record.status !== 'resolving_places') return null
+    const deletion = await ctx.db.query('accountDeletionJobs')
+      .withIndex('by_ownerAuthUserId', q => q.eq('ownerAuthUserId', record.ownerAuthUserId)).first()
+    if (deletion || !await authComponent.getAnyUserById(ctx, record.ownerAuthUserId)) return null
     return { candidates: record.candidates ?? [] }
   },
 })
@@ -281,6 +301,7 @@ export const savePlaceIDs = internalMutation({
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.importId)
     if (!record || record.status !== 'resolving_places') return null
+    if (!await accountMayAcceptWork(ctx, record.ownerAuthUserId)) return null
     const candidates = record.candidates ?? []
     if (args.placeIDs.length !== candidates.length) throw new ConvexError('Place results did not match the import.')
     await ctx.db.patch(record._id, {

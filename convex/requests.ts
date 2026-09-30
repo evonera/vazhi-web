@@ -11,6 +11,7 @@ import { toOwnerAskRequest, toPublicAskRequest } from './askProjections'
 import { MAX_PATH_STOPS, hasPathStopCapacity, orderAcceptedRecommendations } from './acceptedRecommendationOrder'
 import { durableRecommendationPlace } from '../src/lib/googlePlaceRetention'
 import { recommendationContentHash, sha256Hex, validClientSubmissionID } from '../src/lib/recommendationSubmission'
+import { accountDeletionRequested, accountMayAcceptWork } from './accountDeletion'
 
 const category = v.union(
   v.literal('food'), v.literal('hidden_spot'), v.literal('stay'),
@@ -217,6 +218,9 @@ export const submitPublic = internalMutation({
   handler: async (ctx, args) => {
     const request = await ctx.db.query('askRequests').withIndex('by_slug', (q) => q.eq('slug', args.slug)).unique()
     if (!request) throw new ConvexError('This request is no longer accepting recommendations.')
+    // Recommendations are purged before their parent Ask. Prevent late public
+    // submissions creating orphaned content during those cleanup batches.
+    if (await accountDeletionRequested(ctx, request.ownerAuthUserId)) throw new ConvexError('This request is no longer accepting recommendations.')
     let submissionIDHash: string | undefined
     let contentHash: string | undefined
     if (args.clientSubmissionID !== undefined) {
@@ -332,6 +336,7 @@ export const createForOwner = internalMutation({
     destination: v.string(), prompt: v.string(), startsAt: v.optional(v.number()), endsAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    if (!await accountMayAcceptWork(ctx, args.ownerAuthUserId)) throw new ConvexError('This account is no longer available.')
     if (!args.localJourneyID || !args.title.trim() || !args.destination.trim() || !args.prompt.trim()) throw new ConvexError('Add a title, destination, and question.')
     if (args.destination.trim().length > 60 || args.prompt.trim().length > 180) throw new ConvexError('Keep the destination under 60 characters and question under 180.')
     const existingJourney = await ctx.db.query('journeys').withIndex('by_ownerAuthUserId_and_localID', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('localID', args.localJourneyID)).unique()
