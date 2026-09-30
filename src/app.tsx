@@ -54,13 +54,12 @@ function SiteHeader({ campaign = false }: { campaign?: boolean }) {
 function LandingPage() {
   return <main className="campaign-page">
     <section className="campaign-hero"><div className="campaign-frame"><SiteHeader campaign />
-      <p className="marquee" aria-hidden="true"><span>ASK YOUR PEOPLE • SAVE THE GOOD STUFF • MAKE THE PATH • CAPTURE THE MOMENT • </span><span>ASK YOUR PEOPLE • SAVE THE GOOD STUFF • MAKE THE PATH • CAPTURE THE MOMENT • </span></p>
-      <div className="hero-copy"><p className="hero-kicker">A travel journal for people with people</p><h1>Capture places.<br />Ask your people.<br />Make the path.</h1><p>Turn the places your friends swear by into a private, editable path you’ll actually want to follow.</p><div className="hero-actions"><a className="button button--light" href="/download">iPhone launch details <span aria-hidden="true">↗</span></a><a className="button button--quiet" href="/ask/demo-malaysia">Try Ask the Way <span aria-hidden="true">↓</span></a></div><p className="platform-note">iPhone available soon · Android is coming soon</p></div><DeviceStack />
+      <div className="hero-copy"><p className="hero-kicker">A private journal for the places you notice</p><h1>Capture places.<br />Ask your people.<br />Plan a day.</h1><p>Save the small moments, gather trusted recommendations, and turn the places you love into an editable itinerary.</p><div className="hero-actions"><a className="button button--light" href="/download">iPhone launch details <span aria-hidden="true">↗</span></a><a className="button button--quiet" href="/ask/demo-malaysia">Try Ask the Way <span aria-hidden="true">→</span></a></div><p className="platform-note">iPhone available soon</p></div><DeviceStack />
     </div><a className="scroll-cue" href="#product">See how it works <span aria-hidden="true">↓</span></a></section>
     <section id="product" className="product-intro content-band"><p className="section-label">NOT ANOTHER TRIP SPREADSHEET</p><h2>Three rituals for remembering where to go.</h2><p>Vazhi keeps the energetic part of travel planning social, then keeps the useful part quietly yours.</p></section>
-    <section className="feature-grid" aria-label="How Vazhi works"><FeatureCard number="01" name="Capture" title="Save the little things you notice." body="Shoot a photo, leave a voice note, or pin the café you want to remember. Capture works before you’re ready to plan." tone="lime" art="capture" /><FeatureCard number="02" name="Ask the Way" title="Ask people who get your taste." body="Make one beautiful link for your story. Friends add a place, a reason, and a little local context — no download needed." tone="pink" art="ask" /><FeatureCard number="03" name="Path" title="Turn good tips into a day that flows." body="Choose what matters, edit the stops, and keep a route that feels like yours — not a generic list of pins." tone="blue" art="path" /></section>
-    <section className="ask-demo" aria-labelledby="demo-title"><div className="ask-demo-copy"><p className="section-label">ASK THE WAY</p><h2 id="demo-title">One link. A much better trip.</h2><p>Post a question, get named recommendations, and decide exactly what makes it onto your Path. Anonymous is always a choice, never the default.</p><a className="text-cta" href="/ask/demo-malaysia">Open the Malaysia demo <span aria-hidden="true">→</span></a></div><div className="prompt-preview" aria-label="Example Ask the Way request"><p className="mini-brand">vazhi. <span>Ask the Way</span></p><p className="prompt-emoji" aria-hidden="true">✈︎</p><p className="prompt-question">Going to Malaysia in November — where should I go?</p><p className="prompt-destination">MALAYSIA</p><a href="/ask/demo-malaysia">Recommend a place <span aria-hidden="true">↗</span></a></div></section>
-    <section id="safety" className="safety-band"><p className="section-label">YOUR STUFF, YOUR CALL</p><h2>Private by default.<br />Social on purpose.</h2><div className="safety-points"><p><strong>Shared requests show the question and destination.</strong> Your photos, voice notes, exact locations, and private journal stay yours.</p><p><strong>Names are the default.</strong> Friends can choose anonymous, but useful travel advice starts with trust.</p><p><strong>You close the link.</strong> Stop new recommendations any time. Your accepted Path remains private.</p></div><a className="text-cta" href="/privacy">Read our privacy promise <span aria-hidden="true">→</span></a></section>
+    <section className="feature-grid" aria-label="How Vazhi works"><FeatureCard number="01" name="Capture" title="Save the little things you notice." body="Shoot a photo, leave a voice note, or pin the café you want to remember. Capture works before you’re ready to plan." tone="paper" art="capture" /><FeatureCard number="02" name="Ask the Way" title="Ask people who get your taste." body="Make one link for your story. Friends add a place, a reason, and a little local context — no download needed." tone="surface" art="ask" /><FeatureCard number="03" name="Itinerary" title="Turn good tips into a day that flows." body="Choose the stops, change their order, and check travel estimates. Keep your itinerary private or deliberately publish a guide." tone="paper" art="path" /></section>
+    <section className="ask-demo" aria-labelledby="demo-title"><div className="ask-demo-copy"><p className="section-label">ASK THE WAY</p><h2 id="demo-title">One link. A much better trip.</h2><p>Post a question, get named recommendations, and decide exactly what makes it onto your itinerary. Friends can also choose to reply anonymously.</p><a className="text-cta" href="/ask/demo-malaysia">Open the Malaysia demo <span aria-hidden="true">→</span></a></div><div className="prompt-preview" aria-label="Example Ask the Way request"><p className="mini-brand">vazhi. <span>Ask the Way</span></p><p className="prompt-emoji" aria-hidden="true">✈︎</p><p className="prompt-question">Going to Malaysia in November — where should I go?</p><p className="prompt-destination">MALAYSIA</p><a href="/ask/demo-malaysia">Recommend a place <span aria-hidden="true">↗</span></a></div></section>
+    <section id="safety" className="safety-band"><p className="section-label">YOUR STUFF, YOUR CALL</p><h2>Private by default.<br />Social on purpose.</h2><div className="safety-points"><p><strong>Share a question, not your whole journal.</strong> Ask the Way links show your question and destination, not your private Moments.</p><p><strong>Friends choose how to reply.</strong> They can leave a name or submit anonymously. No app or account is needed.</p><p><strong>You close the link.</strong> Stop new recommendations any time. Itineraries stay private unless you publish a guide.</p></div><a className="text-cta" href="/privacy">Read our privacy notice <span aria-hidden="true">→</span></a></section>
     <section className="download-band" aria-labelledby="download-title"><div><p className="section-label">TAKE THE WAY WITH YOU</p><h2 id="download-title">The next good place is already waiting.</h2><p>Scan for iPhone launch details. Android is coming soon.</p><div className="download-actions"><a className="button button--dark" href="/download">iPhone launch details <span aria-hidden="true">↗</span></a><span className="coming-soon">Android · coming soon</span></div></div><a className="qr-card" href="/download" aria-label="Open Vazhi download page"><QRCodeSVG value={downloadURL} size={154} bgColor="#f6f1eb" fgColor="#090909" level="M" includeMargin /><span>SCAN FOR LAUNCH DETAILS</span></a></section><SiteFooter />
   </main>
 }
@@ -75,9 +74,9 @@ function AskPage({ slug }: { slug: string }) {
   const demo = demoRequests.get(slug)
   const [request, setRequest] = useState<PublicAskRequest | null>(demo ?? null); const [loading, setLoading] = useState(!demo); const [error, setError] = useState<string | null>(null)
   useEffect(() => { if (demo) return; publicAskAPI.getRequest(slug).then(setRequest).catch((receivedError: Error) => setError(receivedError.message)).finally(() => setLoading(false)) }, [demo, slug])
-  if (loading) return <main className="route-page route-page--centered"><p>Opening Vazhi request…</p></main>
+  if (loading) return <main className="route-page route-page--centered"><p role="status">Opening Vazhi request…</p></main>
   if (error || !request) return <main className="route-page route-page--centered"><h1>This request is unavailable.</h1><p>{error ?? 'Ask the owner for a new link.'}</p><a href="/" className="button">Meet Vazhi</a></main>
-  if (request.status === 'closed') return <main className="route-page route-page--centered"><p className="eyebrow">Vazhi · Ask the Way</p><h1>This request is closed.</h1><p>The owner has stopped accepting recommendations. Their path is still private.</p><a href="/" className="button">Meet Vazhi</a></main>
+  if (request.status === 'closed') return <main className="route-page route-page--centered"><p className="eyebrow">Vazhi · Ask the Way</p><h1>This request is closed.</h1><p>The owner has stopped accepting recommendations. Their itinerary is still private.</p><a href="/" className="button">Meet Vazhi</a></main>
   return <main className="ask-page"><div className="ask-page__gradient"><div className="ask-page__shell"><AskHeader request={request} /><RecommendationForm request={request} demo={Boolean(demo)} /></div></div><SiteFooter /></main>
 }
 
@@ -177,16 +176,54 @@ function PublicProfilePage({ handle }: { handle: string }) {
   const [profile, setProfile] = useState<PublicProfile | null>(null); const [error, setError] = useState<string | null>(null)
   useEffect(() => { publicGuideAPI.getProfile(handle).then(setProfile).catch(() => setError('This profile is unavailable.')) }, [handle])
   if (error) return <UnavailableGuide />
-  if (!profile) return <main className="route-page route-page--centered"><p>Opening guide maker…</p></main>
+  if (!profile) return <main className="route-page route-page--centered"><p role="status">Opening guide maker…</p></main>
   return <main className="guide-page"><SiteHeader /><section className="guide-profile"><p className="section-label">@{profile.handle}</p><h1>{profile.displayName ?? `@${profile.handle}`}</h1>{profile.bio && <p className="lede">{profile.bio}</p>}<p className="guide-privacy">Only owner-approved, versioned guides appear here. Private journals stay private.</p><div className="guide-list">{profile.listings.length === 0 ? <p>No public guides yet.</p> : profile.listings.map((listing) => <a className="guide-listing" key={listing.slug} href={`/@${profile.handle}/${listing.slug}`}><p className="section-label">{listing.destination} · {listing.stopCount} stops · versioned guide</p><h2>{listing.title}</h2>{listing.subtitle && <p>{listing.subtitle}</p>}<span>Open guide ↗</span></a>)}</div></section><SiteFooter /></main>
 }
 
 function PublicGuidePage({ handle, slug, versionNumber }: { handle: string; slug: string; versionNumber?: number }) {
-  const [listing, setListing] = useState<PublicListing | null>(null); const [error, setError] = useState<string | null>(null); const [reporting, setReporting] = useState(false); const [reported, setReported] = useState(false)
+  const [listing, setListing] = useState<PublicListing | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [reporting, setReporting] = useState(false)
+  const [reported, setReported] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
+  const [sendingReport, setSendingReport] = useState(false)
+  const reportInFlight = useRef(false)
   useEffect(() => { publicGuideAPI.getListing(handle, slug, versionNumber).then(setListing).catch(() => setError('This guide is unavailable.')) }, [handle, slug, versionNumber])
   if (error) return <UnavailableGuide />
-  if (!listing) return <main className="route-page route-page--centered"><p>Opening guide…</p></main>
-  return <main className="guide-page"><SiteHeader /><article className="guide-detail"><p className="section-label">@{listing.handle} · version {listing.versionNumber}</p><h1>{listing.title}</h1><p className="guide-place">{listing.destination}</p>{listing.subtitle && <p className="lede">{listing.subtitle}</p>}<p className="guide-disclaimer">{listing.disclaimer}</p><ol className="guide-stops">{listing.stops.map((stop) => <PublicGuideStop key={stop.orderIndex} stop={stop} />)}</ol><button className="text-link" onClick={() => setReporting(true)}>Report this guide</button>{reporting && <form className="report-form" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void publicGuideAPI.reportListing(listing.slug, String(form.get('reason') ?? ''), String(form.get('detail') ?? '')).then(() => { setReported(true); setReporting(false) }).catch(() => setError('Your report could not be sent. Please try again.')) }}><label>Reason<select name="reason" required defaultValue=""><option value="" disabled>Select a reason</option><option>Private or sensitive location</option><option>Copyright or impersonation</option><option>Unsafe or misleading travel information</option><option>Other</option></select></label><label>Details <span className="optional">optional</span><textarea name="detail" maxLength={1000} /></label><button className="button button--submit">Send report</button></form>}{reported && <p className="form-success" role="status">Thanks — your report was received.</p>}{error && <p className="form-error" role="alert">{error}</p>}</article><SiteFooter /></main>
+  if (!listing) return <main className="route-page route-page--centered"><p role="status">Opening guide…</p></main>
+  async function sendReport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (reportInFlight.current || !listing) return
+    reportInFlight.current = true
+    setSendingReport(true)
+    setReportError(null)
+    const form = new FormData(event.currentTarget)
+    try {
+      await publicGuideAPI.reportListing(listing.slug, String(form.get('reason') ?? ''), String(form.get('detail') ?? ''))
+      setReported(true)
+      setReporting(false)
+    } catch {
+      setReportError('Your report could not be sent. Please try again or email hello@vazhi.app.')
+    } finally {
+      reportInFlight.current = false
+      setSendingReport(false)
+    }
+  }
+  return <main className="guide-page"><SiteHeader /><article className="guide-detail">
+    <p className="section-label">@{listing.handle} · version {listing.versionNumber}</p>
+    <h1>{listing.title}</h1><p className="guide-place">{listing.destination}</p>
+    {listing.subtitle && <p className="lede">{listing.subtitle}</p>}
+    <p className="guide-disclaimer">{listing.disclaimer}</p>
+    <ol className="guide-stops">{listing.stops.map((stop) => <PublicGuideStop key={stop.orderIndex} stop={stop} />)}</ol>
+    {!reporting && !reported && <button className="text-link" onClick={() => { setReportError(null); setReporting(true) }}>Report this guide</button>}
+    {reporting && <form className="report-form" onSubmit={sendReport} aria-busy={sendingReport}>
+      <label>Reason<select name="reason" required defaultValue="" disabled={sendingReport}><option value="" disabled>Select a reason</option><option>Private or sensitive location</option><option>Copyright or impersonation</option><option>Unsafe or misleading travel information</option><option>Other</option></select></label>
+      <label>Details <span className="optional">optional</span><textarea name="detail" maxLength={1000} disabled={sendingReport} /></label>
+      {reportError && <p className="form-error" role="alert">{reportError}</p>}
+      <div className="report-form__actions"><button className="button button--submit" disabled={sendingReport}>{sendingReport ? 'Sending report…' : 'Send report'}</button><button className="text-link" type="button" disabled={sendingReport} onClick={() => { setReportError(null); setReporting(false) }}>Cancel</button></div>
+    </form>}
+    {reported && <p className="form-success" role="status">Thanks — your report was received.</p>}
+  </article><SiteFooter /></main>
 }
 
 function PublicGuideStop({ stop }: { stop: PublicListing['stops'][number] }) {
@@ -232,6 +269,6 @@ function RequestsPage() {
   }
   if (loading) return <main className="route-page route-page--centered"><p role="status">Loading your requests…</p></main>
   if (error && requests.length === 0) return <main className="route-page route-page--centered"><h1>Sign in to see your requests.</h1><p role="alert">{error}</p><a className="button" href="/sign-in">Sign in</a></main>
-  return <main className="dashboard-page"><SiteHeader /><div className="dashboard-page__shell"><p className="eyebrow">Ask the Way</p><h1>Your requests</h1><OwnerAccountControls /><p className="lede">Your iPhone remains the home for accepting recommendations and building a Path.</p>{error && <p className="form-error" role="alert">{error}</p>}<section className="request-list" aria-label="Your Ask the Way requests">{requests.length === 0 ? <p>No requests yet. Create one from a Journey in Vazhi.</p> : requests.map(request => <article className="request-card" key={request.id}><p className="status">{request.status}</p><h2>{request.destination}</h2><p>{request.prompt}</p><p className="fine-print">{request.recommendationCount} recommendations · <a href={`/ask/${request.slug}`}>Open public link</a></p>{request.status === 'open' && <button className="text-link" disabled={closing !== null} onClick={() => void closeRequest(request.id)}>{closing === request.id ? 'Closing…' : 'Close link'}</button>}</article>)}</section></div><SiteFooter /></main>
+  return <main className="dashboard-page"><SiteHeader /><div className="dashboard-page__shell"><p className="eyebrow">Ask the Way</p><h1>Your requests</h1><OwnerAccountControls /><p className="lede">Use Vazhi on your iPhone to accept recommendations and build an itinerary.</p>{error && <p className="form-error" role="alert">{error}</p>}<section className="request-list" aria-label="Your Ask the Way requests">{requests.length === 0 ? <p>No requests yet. Create one from a Journey in Vazhi.</p> : requests.map(request => <article className="request-card" key={request.id}><p className="status">{request.status}</p><h2>{request.destination}</h2><p>{request.prompt}</p><p className="fine-print">{request.recommendationCount} recommendations · <a href={`/ask/${request.slug}`}>Open public link</a></p>{request.status === 'open' && <button className="text-link" disabled={closing !== null} onClick={() => void closeRequest(request.id)}>{closing === request.id ? 'Closing…' : 'Close link'}</button>}</article>)}</section></div><SiteFooter /></main>
 }
 function LegalPage({ title, content }: { title: string; content: ReactNode }) { return <main className="legal-page"><SiteHeader /><section><p className="section-label">VAZHI TRUST</p><h1>{title}</h1>{content}</section><SiteFooter /></main> }
