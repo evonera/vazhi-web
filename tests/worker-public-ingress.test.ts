@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import worker, { type Env } from '../src/worker'
 import { verifyEdgeIngressSignature } from '../src/lib/edgeIngressSignature'
+import { makeContributorCookie } from '../src/lib/contributorIdentity'
 
 const assets = { fetch: vi.fn(async () => new Response('not found', { status: 404 })) }
 
@@ -92,6 +93,49 @@ describe('Cloudflare public ingress', () => {
 
     expect(response.status).toBe(400)
     expect(forwarded).not.toHaveBeenCalled()
+  })
+
+  it('replaces caller-supplied contributor identity with the signed browser cookie identity', async () => {
+    const identity = 'f2e27d7f-4e0a-4d14-b282-05c185c9b3ee'
+    const cookie = await makeContributorCookie('edge-secret', identity)
+    let forwarded: Request | undefined
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      forwarded = new Request(input, init)
+      return new Response(JSON.stringify({ accepted: true }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+    const response = await worker.fetch(
+      new Request('https://vazhi.test/api/recommendations', {
+        method: 'POST',
+        headers: { cookie: `vazhi_sender=${encodeURIComponent(cookie)}`, 'cf-connecting-ip': '203.0.113.42' },
+        body: JSON.stringify({ slug: 'ask-a', contributorID: 'forged', turnstileToken: 'dev-bypass' }),
+      }),
+      environment({ VAZHI_ENVIRONMENT: 'development' }),
+    )
+    expect(response.status).toBe(200)
+    const forwardedBody = JSON.parse(await forwarded!.text()) as Record<string, unknown>
+    expect(forwardedBody.contributorID).toBe(identity)
+    expect(forwardedBody.contributorID).not.toBe('forged')
+    await expect(verifyEdgeIngressSignature({
+      rawBody: JSON.stringify(forwardedBody),
+      signatureHeader: forwarded?.headers.get('x-vazhi-edge-signature') ?? null,
+      signingSecret: 'edge-secret',
+    })).resolves.toBe(true)
+  })
+
+  it('mints a private, non-cacheable sender cookie on the public Ask page', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      slug: 'ask-tokyo', prompt: 'Where should I go?', destination: 'Tokyo',
+    }), { headers: { 'content-type': 'application/json' } })))
+    const response = await worker.fetch(
+      new Request('https://vazhi.test/ask/ask-tokyo', { headers: { accept: 'text/html' } }),
+      environment({ ASSETS: { fetch: async () => new Response('<html><!-- vazhi:meta:start --><!-- vazhi:meta:end --></html>') } }),
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(response.headers.get('set-cookie')).toMatch(/^vazhi_sender=v1\./)
+    expect(response.headers.get('set-cookie')).toContain('HttpOnly; Secure; SameSite=Lax')
   })
 
   it('edge-signs public reports without exposing whether a guide exists', async () => {

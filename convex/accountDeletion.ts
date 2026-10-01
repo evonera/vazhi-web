@@ -25,7 +25,7 @@ const phases = [
   'syncedMoments', 'syncedJourneys', 'syncedOutboxJobs', 'aiUsageEvents',
   // Append new phases: active deletion jobs persist the numeric phase index.
   'profileHandleAliases', 'profiles', 'nativeAuthGrants', 'reelImports', 'recommendationSubmissions',
-  'appleRevocationCredentials',
+  'appleRevocationCredentials', 'blockedAskContributors',
 ] as const
 
 type Phase = typeof phases[number]
@@ -33,6 +33,7 @@ type OwnedRow = {
   ownerAuthUserId?: string
   mediaStorageId?: Id<'_storage'>
   listingId?: Id<'publicItineraryListings'>
+  recommendationId?: Id<'recommendations'>
   reportId?: Id<'reports'>
   listingSlug?: string
   askRequestId?: Id<'askRequests'>
@@ -61,8 +62,13 @@ async function belongsToAccount(ctx: MutationCtx, phase: Phase, row: OwnedRow, o
     }
     if (report?.listingSlug) {
       const listing = await ctx.db.query('publicItineraryListings')
-        .withIndex('by_slug', (q) => q.eq('slug', report.listingSlug)).first()
+        .withIndex('by_slug', (q) => q.eq('slug', report.listingSlug!)).first()
       return listing?.ownerAuthUserId === ownerAuthUserId
+    }
+    if (report?.recommendationId) {
+      const recommendation = await ctx.db.get(report.recommendationId)
+      const request = recommendation ? await ctx.db.get(recommendation.askRequestId) : null
+      return request?.ownerAuthUserId === ownerAuthUserId
     }
     if (row.listingId) {
       const listing = await ctx.db.get(row.listingId)
@@ -70,6 +76,15 @@ async function belongsToAccount(ctx: MutationCtx, phase: Phase, row: OwnedRow, o
     }
   }
   if (phase === 'reports') {
+    if (row.askRequestId) {
+      const request = await ctx.db.get(row.askRequestId)
+      return request?.ownerAuthUserId === ownerAuthUserId
+    }
+    if (row.recommendationId) {
+      const recommendation = await ctx.db.get(row.recommendationId)
+      const request = recommendation ? await ctx.db.get(recommendation.askRequestId) : null
+      return request?.ownerAuthUserId === ownerAuthUserId
+    }
     const listing = row.listingId
       ? await ctx.db.get(row.listingId)
       : row.listingSlug

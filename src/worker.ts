@@ -1,5 +1,6 @@
 import { edgeIngressSignature } from './lib/edgeIngressSignature'
 import { mayBypassTurnstile, opaqueRateLimitKey } from './lib/publicIngress'
+import { cookieValue, makeContributorCookie, readContributorCookie } from './lib/contributorIdentity'
 
 interface AssetFetcher {
   fetch(request: Request): Promise<Response>
@@ -117,7 +118,7 @@ async function forwardSignedPublicIngress(
   env: Env,
 ) {
   if (!env.CONVEX_HTTP_URL) return json({ message: 'This request is unavailable.' }, 503)
-  const rawBody = await request.text()
+  let rawBody = await request.text()
   if (new TextEncoder().encode(rawBody).byteLength > 16_384) {
     return json({ message: 'This request is too large.' }, 413)
   }
@@ -130,8 +131,23 @@ async function forwardSignedPublicIngress(
     return json({ message: 'Check the form and try again.' }, 400)
   }
 
-  // Place type-ahead remains frictionless. The eventual submission must pass
-  // Turnstile, and both routes remain edge-signed and independently limited.
+  if (path === '/api/recommendations') {
+    const identity = await readContributorCookie(
+      cookieValue(request.headers.get('cookie'), 'vazhi_sender'),
+      env.EDGE_INGRESS_SIGNING_SECRET ?? '',
+    )
+    if (identity) {
+      // This field is covered by the edge signature below; callers cannot
+      // choose or forge the identity used by the owner-scoped block list.
+      input.contributorID = identity
+      rawBody = JSON.stringify(input)
+    } else if (env.VAZHI_ENVIRONMENT !== 'development') {
+      return json({ message: 'Refresh this link before sending your recommendation.' }, 400)
+    }
+  }
+
+  // Place type-ahead remains frictionless. Recommendation submissions must
+  // pass Turnstile; their verified browser identity is added before signing.
   if (path === '/api/recommendations' && !await turnstilePasses(input, request, env)) {
     return json({ message: 'Please complete the verification and try again.' }, 400)
   }
@@ -277,6 +293,17 @@ const worker = {
         const index = await env.ASSETS.fetch(new Request(new URL('/index.html', url)))
         const headers = new Headers(index.headers)
         headers.set('content-type', 'text/html; charset=utf-8')
+        if (/^\/ask\/[^/]+$/.test(url.pathname) && env.EDGE_INGRESS_SIGNING_SECRET) {
+          const existing = await readContributorCookie(
+            cookieValue(request.headers.get('cookie'), 'vazhi_sender'),
+            env.EDGE_INGRESS_SIGNING_SECRET,
+          )
+          if (!existing) {
+            const token = await makeContributorCookie(env.EDGE_INGRESS_SIGNING_SECRET)
+            headers.append('set-cookie', `vazhi_sender=${encodeURIComponent(token)}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`)
+          }
+          headers.set('cache-control', 'private, no-store')
+        }
         return new Response((await index.text()).replace(/<!-- vazhi:meta:start -->[\s\S]*?<!-- vazhi:meta:end -->/, dynamicMetadata), {
           status: index.status,
           statusText: index.statusText,

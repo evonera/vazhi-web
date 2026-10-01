@@ -17,7 +17,7 @@ import { parseCloudAISuggestionRequest, readBoundedAIRequestBody } from './aiReq
 import { generateSuggestionsForOwner } from './ai'
 import { authCapabilities } from './betterAuth/configuration'
 import { registerNativeAuth } from './nativeAuthHTTP'
-import type { Id } from './_generated/dataModel'
+import type { Doc, Id } from './_generated/dataModel'
 import { parseImportBody, readReelImportBody, readReelVideoBody, reelVideoPreflight, safeIdempotencyKey, safeImportId, safeSourceURL } from '../src/lib/reelImportHTTP'
 
 const http = httpRouter()
@@ -116,6 +116,7 @@ http.route({ path: '/api/recommendations', method: 'POST', handler: httpAction(a
     await ctx.runMutation(internal.requests.submitPublic, {
       slug: typeof input.slug === 'string' ? input.slug : '',
       rateLimitKey: await requestBucket(request),
+      contributorID: typeof input.contributorID === 'string' ? input.contributorID : undefined,
       clientSubmissionID: typeof input.clientSubmissionID === 'string' ? input.clientSubmissionID : undefined,
       anonymous: input.anonymous === true,
       contributorName: typeof input.contributorName === 'string' ? input.contributorName : undefined,
@@ -320,7 +321,7 @@ http.route({ path: '/api/owner/recommendations', method: 'GET', handler: httpAct
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const requestId = new URL(request.url).searchParams.get('requestID') ?? ''
     const result = await ctx.runQuery(internal.requests.listRecommendationsForOwner, { ownerAuthUserId, requestId } as never)
-    return json(result.map((recommendation) => ({
+    return json(result.map((recommendation: Doc<'recommendations'>) => ({
       id: recommendation._id,
       anonymous: recommendation.anonymous,
       contributorName: recommendation.contributorName,
@@ -332,6 +333,7 @@ http.route({ path: '/api/owner/recommendations', method: 'GET', handler: httpAct
       note: recommendation.note,
       referenceURL: recommendation.referenceURL,
       status: recommendation.status,
+      canBlockContributor: Boolean(recommendation.contributorKeyHash),
       acceptedAt: recommendation.acceptedAt,
       acceptanceOrder: recommendation.acceptanceOrder,
       submittedAt: recommendation.submittedAt,
@@ -354,6 +356,35 @@ http.route({ path: '/api/owner/recommendations', method: 'PATCH', handler: httpA
   } catch {
     // Do not distinguish a foreign recommendation from a malformed one.
     return json({ message: 'That recommendation could not be updated.' }, 404)
+  }
+}) })
+
+http.route({ path: '/api/owner/recommendation-reports', method: 'POST', handler: httpAction(async (ctx, request) => {
+  try {
+    const input = await request.json() as Record<string, unknown>
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    await ctx.runMutation(internal.requests.reportRecommendationForOwner, {
+      ownerAuthUserId,
+      recommendationId: typeof input.recommendationID === 'string' ? input.recommendationID : '',
+      reason: input.reason,
+    } as never)
+    return json({ reported: true })
+  } catch {
+    return json({ message: 'That recommendation could not be reported.' }, 404)
+  }
+}) })
+
+http.route({ path: '/api/owner/recommendation-blocks', method: 'POST', handler: httpAction(async (ctx, request) => {
+  try {
+    const input = await request.json() as Record<string, unknown>
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    await ctx.runMutation(internal.requests.blockRecommendationContributorForOwner, {
+      ownerAuthUserId,
+      recommendationId: typeof input.recommendationID === 'string' ? input.recommendationID : '',
+    } as never)
+    return json({ blocked: true })
+  } catch {
+    return json({ message: 'That contributor could not be blocked.' }, 404)
   }
 }) })
 
