@@ -1,12 +1,13 @@
 import { ConvexError, v } from 'convex/values'
 import { paginationOptsValidator } from 'convex/server'
 import { internalMutation, internalQuery, mutation, query } from './_generated/server'
+import type { MutationCtx, QueryCtx } from './_generated/server'
 import { internal } from './_generated/api'
 import { RateLimiter, HOUR } from '@convex-dev/rate-limiter'
 import { components } from './_generated/api'
 import { authComponent } from './betterAuth/auth'
 import type { GenericCtx } from '@convex-dev/better-auth/utils'
-import type { DataModel } from './_generated/dataModel'
+import type { DataModel, Doc, Id } from './_generated/dataModel'
 import { toOwnerAskRequest, toPublicAskRequest } from './askProjections'
 import { MAX_PATH_STOPS, hasPathStopCapacity, orderAcceptedRecommendations } from './acceptedRecommendationOrder'
 import { durableRecommendationPlace } from '../src/lib/googlePlaceRetention'
@@ -43,6 +44,21 @@ const rateLimiter = new RateLimiter(components.rateLimiter, {
 async function requireOwnerAuthUserId(ctx: GenericCtx<DataModel>) {
   const user = await authComponent.getAuthUser(ctx)
   return String(user._id)
+}
+
+async function visibleRecommendations(ctx: QueryCtx, ownerAuthUserId: string, requestId: Id<'askRequests'>) {
+  const [recommendations, blocks] = await Promise.all([
+    ctx.db.query('recommendations')
+      .withIndex('by_askRequestId_and_submittedAt', q => q.eq('askRequestId', requestId))
+      .order('desc').take(100),
+    ctx.db.query('blockedAskContributors')
+      .withIndex('by_ownerAuthUserId_and_contributorKeyHash', q => q.eq('ownerAuthUserId', ownerAuthUserId))
+      .take(1_000),
+  ])
+  const blocked = new Set(blocks.map(item => item.contributorKeyHash))
+  return recommendations.filter(row =>
+    !row.hiddenByOwner && !row.hiddenByModeration &&
+    (!row.contributorKeyHash || !blocked.has(row.contributorKeyHash)))
 }
 
 function slug() {
@@ -139,7 +155,7 @@ export const listRecommendations = query({
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const request = await ctx.db.get(args.requestId)
     if (!request || request.ownerAuthUserId !== ownerAuthUserId) throw new ConvexError('Request not found.')
-    return ctx.db.query('recommendations').withIndex('by_askRequestId_and_submittedAt', (q) => q.eq('askRequestId', request._id)).order('desc').take(100)
+    return visibleRecommendations(ctx, ownerAuthUserId, request._id)
   },
 })
 
@@ -214,7 +230,7 @@ export const getPublicBySlug = internalQuery({
 })
 
 export const submitPublic = internalMutation({
-  args: { slug: v.string(), rateLimitKey: v.string(), clientSubmissionID: v.optional(v.string()), anonymous: v.boolean(), contributorName: v.optional(v.string()), contributorHandle: v.optional(v.string()), category, place, note: v.string(), referenceURL: v.optional(v.string()) },
+  args: { slug: v.string(), rateLimitKey: v.string(), contributorID: v.optional(v.string()), clientSubmissionID: v.optional(v.string()), anonymous: v.boolean(), contributorName: v.optional(v.string()), contributorHandle: v.optional(v.string()), category, place, note: v.string(), referenceURL: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const request = await ctx.db.query('askRequests').withIndex('by_slug', (q) => q.eq('slug', args.slug)).unique()
     if (!request) throw new ConvexError('This request is no longer accepting recommendations.')
@@ -251,8 +267,19 @@ export const submitPublic = internalMutation({
     if (args.referenceURL && !isHTTPSURL(args.referenceURL)) throw new ConvexError('Reference links must use HTTPS.')
     if (args.place.latitude < -90 || args.place.latitude > 90 || args.place.longitude < -180 || args.place.longitude > 180) throw new ConvexError('Choose a valid map location.')
     if (args.place.provider === 'google' && !args.place.providerPlaceID?.trim()) throw new ConvexError('Choose a valid Google place.')
+    let contributorKeyHash: string | undefined
+    if (args.contributorID !== undefined) {
+      if (!validClientSubmissionID(args.contributorID)) throw new ConvexError('Refresh this link before sending your recommendation.')
+      contributorKeyHash = await sha256Hex(`${request.ownerAuthUserId}:${args.contributorID}`)
+      const blocked = await ctx.db.query('blockedAskContributors')
+        .withIndex('by_ownerAuthUserId_and_contributorKeyHash', q => q
+          .eq('ownerAuthUserId', request.ownerAuthUserId).eq('contributorKeyHash', contributorKeyHash!))
+        .unique()
+      // Keep the receipt generic: do not reveal that this browser was blocked.
+      if (blocked) return null
+    }
     const durablePlace = durableRecommendationPlace(args.place)
-    await ctx.db.insert('recommendations', { askRequestId: request._id, anonymous: args.anonymous, contributorName: args.anonymous ? undefined : args.contributorName?.trim(), contributorHandle: args.anonymous ? undefined : args.contributorHandle?.trim(), category: args.category, place: durablePlace, note: args.note.trim(), referenceURL: args.referenceURL, status: 'pending', submittedAt: Date.now() })
+    await ctx.db.insert('recommendations', { askRequestId: request._id, contributorKeyHash, anonymous: args.anonymous, contributorName: args.anonymous ? undefined : args.contributorName?.trim(), contributorHandle: args.anonymous ? undefined : args.contributorHandle?.trim(), category: args.category, place: durablePlace, note: args.note.trim(), referenceURL: args.referenceURL, status: 'pending', submittedAt: Date.now() })
     if (submissionIDHash && contentHash) await ctx.db.insert('recommendationSubmissions', {
       ownerAuthUserId: request.ownerAuthUserId, askRequestId: request._id,
       submissionIDHash, contentHash, createdAt: Date.now(),
@@ -363,7 +390,101 @@ export const listRecommendationsForOwner = internalQuery({
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId)
     if (!request || request.ownerAuthUserId !== args.ownerAuthUserId) throw new ConvexError('Request not found.')
-    return ctx.db.query('recommendations').withIndex('by_askRequestId_and_submittedAt', (q) => q.eq('askRequestId', request._id)).order('desc').take(100)
+    return visibleRecommendations(ctx, args.ownerAuthUserId, request._id)
+  },
+})
+
+async function hideRecommendationForOwner(ctx: MutationCtx, recommendation: Doc<'recommendations'>, request: Doc<'askRequests'>) {
+  if (recommendation.hiddenByOwner) return
+  const now = Date.now()
+  await ctx.db.patch(recommendation._id, {
+    hiddenByOwner: true,
+    status: recommendation.status === 'pending' ? 'ignored' : recommendation.status,
+  })
+  await ctx.db.patch(request._id, {
+    inboxVersion: (request.inboxVersion ?? 0) + 1,
+    pendingRecommendationCount: Math.max(0, request.pendingRecommendationCount - (recommendation.status === 'pending' ? 1 : 0)),
+  })
+  if (recommendation.status === 'pending') {
+    const journey = await ctx.db.get(request.journeyId)
+    if (journey) await ctx.db.patch(journey._id, {
+      pendingRecommendationCount: Math.max(0, journey.pendingRecommendationCount - 1),
+      updatedAt: now,
+    })
+  }
+}
+
+export const reportRecommendationForOwner = internalMutation({
+  args: {
+    ownerAuthUserId: v.string(),
+    recommendationId: v.id('recommendations'),
+    reason: v.union(
+      v.literal('Inappropriate or offensive'),
+      v.literal('Spam'),
+      v.literal('Harassment or bullying'),
+      v.literal('Unsafe or misleading'),
+    ),
+  },
+  handler: async (ctx, args) => {
+    if (!await accountMayAcceptWork(ctx, args.ownerAuthUserId)) throw new ConvexError('This account is no longer available.')
+    const recommendation = await ctx.db.get(args.recommendationId)
+    const request = recommendation ? await ctx.db.get(recommendation.askRequestId) : null
+    if (!recommendation || !request || request.ownerAuthUserId !== args.ownerAuthUserId) {
+      throw new ConvexError('Recommendation not found.')
+    }
+    const reportFingerprint = await sha256Hex(`${args.ownerAuthUserId}:${recommendation._id}`)
+    const existing = await ctx.db.query('reports')
+      .withIndex('by_recommendationId_and_status_and_reportFingerprint', q => q
+        .eq('recommendationId', recommendation._id)
+        .eq('status', 'open')
+        .eq('reportFingerprint', reportFingerprint))
+      .first()
+    if (!existing) await ctx.db.insert('reports', {
+      targetType: 'recommendation',
+      recommendationId: recommendation._id,
+      askRequestId: request._id,
+      reportFingerprint,
+      reason: args.reason,
+      status: 'open',
+      createdAt: Date.now(),
+    })
+    await hideRecommendationForOwner(ctx, recommendation, request)
+    return null
+  },
+})
+
+export const blockRecommendationContributorForOwner = internalMutation({
+  args: { ownerAuthUserId: v.string(), recommendationId: v.id('recommendations') },
+  handler: async (ctx, args) => {
+    if (!await accountMayAcceptWork(ctx, args.ownerAuthUserId)) throw new ConvexError('This account is no longer available.')
+    const recommendation = await ctx.db.get(args.recommendationId)
+    const request = recommendation ? await ctx.db.get(recommendation.askRequestId) : null
+    if (!recommendation || !request || request.ownerAuthUserId !== args.ownerAuthUserId) {
+      throw new ConvexError('Recommendation not found.')
+    }
+    if (!recommendation.contributorKeyHash) {
+      throw new ConvexError('This older recommendation has no blockable sender identity. You can still report it.')
+    }
+    const existing = await ctx.db.query('blockedAskContributors')
+      .withIndex('by_ownerAuthUserId_and_contributorKeyHash', q => q
+        .eq('ownerAuthUserId', args.ownerAuthUserId)
+        .eq('contributorKeyHash', recommendation.contributorKeyHash!))
+      .unique()
+    if (!existing) await ctx.db.insert('blockedAskContributors', {
+      ownerAuthUserId: args.ownerAuthUserId,
+      contributorKeyHash: recommendation.contributorKeyHash,
+      createdAt: Date.now(),
+    })
+
+    const ownedRequests = await ctx.db.query('askRequests')
+      .withIndex('by_ownerAuthUserId_and_createdAt', q => q.eq('ownerAuthUserId', args.ownerAuthUserId))
+      .order('desc').take(100)
+    for (const ownedRequest of ownedRequests) {
+      if (ownedRequest._id === request._id) continue
+      await ctx.db.patch(ownedRequest._id, { inboxVersion: (ownedRequest.inboxVersion ?? 0) + 1 })
+    }
+    await hideRecommendationForOwner(ctx, recommendation, request)
+    return null
   },
 })
 

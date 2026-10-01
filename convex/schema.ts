@@ -76,6 +76,11 @@ export default defineSchema({
 
   recommendations: defineTable({
     askRequestId: v.id('askRequests'),
+    // Hash of the signed, opaque browser cookie minted by the public Worker.
+    // The raw cookie is never persisted or returned to the owner client.
+    contributorKeyHash: v.optional(v.string()),
+    hiddenByOwner: v.optional(v.boolean()),
+    hiddenByModeration: v.optional(v.boolean()),
     anonymous: v.boolean(),
     contributorName: v.optional(v.string()),
     contributorHandle: v.optional(v.string()),
@@ -100,6 +105,12 @@ export default defineSchema({
     contentHash: v.string(),
     createdAt: v.number(),
   }).index('by_askRequestId_and_submissionIDHash', ['askRequestId', 'submissionIDHash']),
+
+  blockedAskContributors: defineTable({
+    ownerAuthUserId: v.string(),
+    contributorKeyHash: v.string(),
+    createdAt: v.number(),
+  }).index('by_ownerAuthUserId_and_contributorKeyHash', ['ownerAuthUserId', 'contributorKeyHash']),
 
   // Private, owner-scoped video analysis jobs. Original media is temporary
   // Convex Storage data and is deleted after processing or timeout.
@@ -318,9 +329,11 @@ export default defineSchema({
   }).index('by_listingId_and_versionNumber', ['listingId', 'versionNumber']),
 
   reports: defineTable({
-    targetType: v.literal('listing'),
+    targetType: v.union(v.literal('listing'), v.literal('recommendation')),
     listingId: v.optional(v.id('publicItineraryListings')),
-    listingSlug: v.string(),
+    listingSlug: v.optional(v.string()),
+    recommendationId: v.optional(v.id('recommendations')),
+    askRequestId: v.optional(v.id('askRequests')),
     // A salted one-way edge bucket, never a raw IP address. It deduplicates
     // repeated reports for one guide without becoming product identity data.
     reportFingerprint: v.string(),
@@ -332,12 +345,14 @@ export default defineSchema({
     .index('by_listingId_and_createdAt', ['listingId', 'createdAt'])
     .index('by_listingId_and_reportFingerprint', ['listingId', 'reportFingerprint'])
     .index('by_listingId_and_status_and_reportFingerprint', ['listingId', 'status', 'reportFingerprint'])
+    .index('by_recommendationId_and_status_and_reportFingerprint', ['recommendationId', 'status', 'reportFingerprint'])
     .index('by_status_and_createdAt', ['status', 'createdAt']),
 
   // Moderation decisions are append-only audit records; the shared dashboard
   // credential is never written to product data.
   moderationActions: defineTable({
     listingId: v.optional(v.id('publicItineraryListings')),
+    recommendationId: v.optional(v.id('recommendations')),
     reportId: v.id('reports'),
     action: v.union(v.literal('dismiss'), v.literal('takedown'), v.literal('restore')),
     previousListingStatus: v.optional(v.union(v.literal('published'), v.literal('archived'), v.literal('takedown'))),

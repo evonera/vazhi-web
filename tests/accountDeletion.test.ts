@@ -45,6 +45,9 @@ test('account deletion removes owned descendants and leaves another account inta
       ownerAuthUserId: ownerID, askRequestId: request,
       submissionIDHash: 'owned-receipt', contentHash: 'owned-content', createdAt: 1,
     })
+    await ctx.db.insert('blockedAskContributors', {
+      ownerAuthUserId: ownerID, contributorKeyHash: 'owned-contributor', createdAt: 1,
+    })
     const otherJourney = await ctx.db.query('journeys')
       .withIndex('by_ownerAuthUserId_and_localID', q => q.eq('ownerAuthUserId', otherID).eq('localID', 'other'))
       .unique()
@@ -117,6 +120,7 @@ test('account deletion removes owned descendants and leaves another account inta
     profiles: await ctx.db.query('profiles').collect(),
     reelImports: await ctx.db.query('reelImports').collect(),
     recommendationSubmissions: await ctx.db.query('recommendationSubmissions').collect(),
+    blockedAskContributors: await ctx.db.query('blockedAskContributors').collect(),
     ownedMedia: await ctx.db.system.get('_storage', ownedMediaID),
     otherMedia: await ctx.db.system.get('_storage', otherMediaID),
     jobs: await ctx.db.query('accountDeletionJobs').collect(),
@@ -127,6 +131,7 @@ test('account deletion removes owned descendants and leaves another account inta
   expect(remaining.profiles[0].ownerAuthUserId).not.toBe(ownerID)
   expect(remaining.reelImports.map((row) => row.idempotencyKey)).toEqual(['other-import'])
   expect(remaining.recommendationSubmissions.map((row) => row.submissionIDHash)).toEqual(['other-receipt'])
+  expect(remaining.blockedAskContributors).toHaveLength(0)
   expect(remaining.ownedMedia).toBeNull()
   expect(remaining.otherMedia).not.toBeNull()
   for (const table of ['recommendations', 'paths', 'pathStops', 'listings', 'versions', 'reports', 'moderationActions', 'jobs'] as const) {

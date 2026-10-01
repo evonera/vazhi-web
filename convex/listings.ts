@@ -250,13 +250,23 @@ export const reportPublicListing = internalMutation({
 
 async function moderationQueueItem(ctx: QueryCtx, report: Doc<'reports'>) {
   const listing = report.listingId ? await ctx.db.get(report.listingId) : null
+  const recommendation = report.recommendationId ? await ctx.db.get(report.recommendationId) : null
+  const request = recommendation ? await ctx.db.get(recommendation.askRequestId) : null
   const actions = await ctx.db.query('moderationActions')
     .withIndex('by_reportId_and_createdAt', (q) => q.eq('reportId', report._id))
     .order('desc').take(1)
   return {
     id: report._id,
-    listingSlug: report.listingSlug,
-    listingStatus: listing?.status ?? 'unavailable',
+    targetType: report.targetType,
+    listingSlug: report.listingSlug ?? '',
+    recommendationID: report.recommendationId,
+    recommendation: recommendation ? {
+      destination: request?.destination ?? '',
+      note: recommendation.note,
+      placeName: recommendation.place.name ?? '',
+      contributor: recommendation.anonymous ? 'Anonymous' : recommendation.contributorName ?? 'Contributor',
+    } : undefined,
+    listingStatus: listing?.status ?? (report.targetType === 'recommendation' ? 'recommendation' : 'unavailable'),
     reportStatus: report.status,
     canRestore: listing?.status === 'takedown' && reportHasActiveTakedown(actions),
     reason: report.reason,
@@ -318,10 +328,12 @@ export const resolveModerationReport = internalMutation({
     const report = await ctx.db.get(args.reportId)
     if (!report) throw new ConvexError('Report not found.')
     const listing = report.listingId ? await ctx.db.get(report.listingId) : null
+    const recommendation = report.recommendationId ? await ctx.db.get(report.recommendationId) : null
     const reportActions = await ctx.db.query('moderationActions')
       .withIndex('by_reportId_and_createdAt', (q) => q.eq('reportId', report._id))
       .order('desc').take(20)
     const isRestoringThisReportTakedown = args.action === 'restore' &&
+      report.targetType === 'listing' &&
       report.status === 'reviewed' &&
       listing?.status === 'takedown' &&
       reportHasActiveTakedown(reportActions)
@@ -333,7 +345,9 @@ export const resolveModerationReport = internalMutation({
     } else if (report.status !== 'open') {
       throw new ConvexError('Report has already been resolved.')
     }
-    if (args.action !== 'dismiss' && !listing) throw new ConvexError('Guide is unavailable.')
+    if (report.targetType === 'listing' && args.action !== 'dismiss' && !listing) throw new ConvexError('Guide is unavailable.')
+    if (report.targetType === 'recommendation' && args.action === 'restore') throw new ConvexError('Recommendation reports cannot be restored.')
+    if (report.targetType === 'recommendation' && args.action === 'takedown' && !recommendation) throw new ConvexError('Recommendation is unavailable.')
     if (args.action === 'takedown' && listing?.status === 'takedown') {
       throw new ConvexError('This guide is already taken down.')
     }
@@ -354,12 +368,31 @@ export const resolveModerationReport = internalMutation({
         updatedAt: now,
       })
     }
+    if (args.action === 'takedown' && recommendation) {
+      const request = await ctx.db.get(recommendation.askRequestId)
+      await ctx.db.patch(recommendation._id, { hiddenByModeration: true, status: 'ignored' })
+      if (request) {
+        const wasPending = recommendation.status === 'pending'
+        await ctx.db.patch(request._id, {
+          inboxVersion: (request.inboxVersion ?? 0) + 1,
+          pendingRecommendationCount: Math.max(0, request.pendingRecommendationCount - (wasPending ? 1 : 0)),
+        })
+        if (wasPending) {
+          const journey = await ctx.db.get(request.journeyId)
+          if (journey) await ctx.db.patch(journey._id, {
+            pendingRecommendationCount: Math.max(0, journey.pendingRecommendationCount - 1),
+            updatedAt: now,
+          })
+        }
+      }
+    }
 
     await ctx.db.patch(report._id, {
       status: args.action === 'dismiss' ? 'dismissed' : 'reviewed',
     })
     await ctx.db.insert('moderationActions', {
       listingId: listing?._id,
+      recommendationId: recommendation?._id,
       reportId: report._id,
       action: args.action,
       previousListingStatus,
