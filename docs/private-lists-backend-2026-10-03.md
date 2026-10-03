@@ -10,7 +10,7 @@ Review stages:
 
 Verification on 3 October 2026:
 
-- Locked `npm ci` repaired the missing workerd executable; lockfile unchanged. Four dependency advisories remain (three moderate, one high), needing deliberate triage.
+- Locked `npm ci` repaired the missing workerd executable; lockfile unchanged. Four dependency advisories remain (three moderate, one high) in development tooling (`undici` through Miniflare/Wrangler and the Cloudflare Vite plugin). `npm audit --omit=dev` found no production-package advisories. Tooling still needs a tested update; this is not a finding that all dependency risks are eliminated.
 - 123 backend tests / 30 files passed. Both TypeScript checks and Vite client/Worker build passed.
 - Updated browser suite passed all 24 tests using one worker. A concurrent high-worker rerun hit eight page/action timeouts; only the complete successful rerun is accepted as final evidence.
 - Convex production dry run proposed additive private-place indexes, deleting none. Worker production dry run passed. These are not production deploys.
