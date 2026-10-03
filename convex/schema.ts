@@ -8,7 +8,7 @@ const category = v.union(
 )
 
 const place = v.object({
-  provider: v.union(v.literal('google'), v.literal('manual')),
+  provider: v.union(v.literal('google'), v.literal('manual'), v.literal('unresolved')),
   providerPlaceID: v.optional(v.string()),
   name: v.optional(v.string()),
   address: v.optional(v.string()),
@@ -17,8 +17,26 @@ const place = v.object({
   primaryType: v.optional(v.string()),
 })
 
+const privatePlaceRecord = {
+  ownerAuthUserId: v.string(), localID: v.string(), revision: v.number(),
+  payloadJSON: v.string(), deleted: v.boolean(), updatedAt: v.number(),
+}
+
 export default defineSchema({
   ...betterAuthTables,
+  savedPlaces: defineTable(privatePlaceRecord)
+    .index('by_owner_and_id', ['ownerAuthUserId', 'localID'])
+    .index('by_owner_and_revision', ['ownerAuthUserId', 'revision']),
+  privatePlaceLists: defineTable(privatePlaceRecord)
+    .index('by_owner_and_id', ['ownerAuthUserId', 'localID'])
+    .index('by_owner_and_revision', ['ownerAuthUserId', 'revision']),
+  privatePlaceMemberships: defineTable(privatePlaceRecord)
+    .index('by_owner_and_id', ['ownerAuthUserId', 'localID'])
+    .index('by_owner_and_revision', ['ownerAuthUserId', 'revision']),
+  privatePlaceVersions: defineTable({ ownerAuthUserId: v.string(), revision: v.number() })
+    .index('by_ownerAuthUserId', ['ownerAuthUserId']),
+  privatePlaceReceipts: defineTable({ ownerAuthUserId: v.string(), operationID: v.string(), resultJSON: v.string() })
+    .index('by_owner_and_operation', ['ownerAuthUserId', 'operationID']),
   // Short-lived PKCE handoff. Never exposed through a public query or URL.
   nativeAuthGrants: defineTable({
     codeHash: v.string(),
