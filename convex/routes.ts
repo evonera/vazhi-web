@@ -61,7 +61,7 @@ export const reserveOwnerRouteCalculation = internalMutation({
     const result = await routeLimiter.limit(ctx, 'ownerRouteCalculation', {
       key: args.ownerAuthUserId, throws: false,
     })
-    if (!result.ok) throw new ConvexError('You have reached today’s route-calculation limit. Try again later.')
+    if (!result.ok) throw new ConvexError('Route calculations are temporarily limited. Wait a little and try again.')
     return null
   },
 })
@@ -109,7 +109,7 @@ export const upsertPrivatePath = mutation({
     const syncLimit = await routeLimiter.limit(ctx, 'ownerPathSync', {
       key: ownerAuthUserId, throws: false,
     })
-    if (!syncLimit.ok) throw new ConvexError('You have reached today’s Path routing limit. Try again later.')
+    if (!syncLimit.ok) throw new ConvexError('Itinerary routing is temporarily limited. Wait a little and try again.')
 
     const now = Date.now()
     const pathID = existing?._id ?? await ctx.db.insert('paths', {

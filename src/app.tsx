@@ -34,8 +34,8 @@ export function App() {
     return <PublicGuidePage handle={profileRoute.handle} slug={profileRoute.slug} versionNumber={version} />
   }
   if (profileRoute) return <PublicProfilePage handle={profileRoute.handle} />
-  if (window.location.pathname === '/privacy') return <LegalPage title="Privacy" content={<PrivacyContent />} />
-  if (window.location.pathname === '/terms') return <LegalPage title="Terms" content={<TermsContent />} />
+  if (['/privacy', '/legal/privacy'].includes(window.location.pathname.replace(/\/$/, ''))) return <LegalPage title="Privacy" content={<PrivacyContent />} />
+  if (['/terms', '/legal/terms'].includes(window.location.pathname.replace(/\/$/, ''))) return <LegalPage title="Terms" content={<TermsContent />} />
   if (window.location.pathname === '/report') return <LegalPage title="Report a link" content={<ReportContent />} />
   if (window.location.pathname === '/sign-in') return <OwnerSignInPage />
   if (window.location.pathname === '/requests') return <RequestsPage />
@@ -87,10 +87,6 @@ function RecommendationForm({ request, demo }: { request: PublicAskRequest; demo
   const [anonymous, setAnonymous] = useState(false); const [name, setName] = useState(''); const [handle, setHandle] = useState(''); const [category, setCategory] = useState<RecommendationCategory>('food'); const [query, setQuery] = useState(''); const [results, setResults] = useState<Place[]>([]); const [selectedPlace, setSelectedPlace] = useState<Place | null>(null); const [note, setNote] = useState(''); const [referenceURL, setReferenceURL] = useState(''); const [turnstileToken, setTurnstileToken] = useState<string | null>(demo ? 'demo' : null); const [turnstileResetKey, setTurnstileResetKey] = useState(0); const [status, setStatus] = useState<'idle' | 'submitting' | 'success'>('idle'); const [error, setError] = useState<string | null>(null)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [manualName, setManualName] = useState('')
-  const [manualLatitude, setManualLatitude] = useState('')
-  const [manualLongitude, setManualLongitude] = useState('')
-  const [isLocating, setIsLocating] = useState(false)
-  const [locationError, setLocationError] = useState<string | null>(null)
   useEffect(() => {
     if (query.trim().length < 3 || selectedPlace) { setResults([]); setSearchError(null); return }
     let cancelled = false
@@ -99,43 +95,16 @@ function RecommendationForm({ request, demo }: { request: PublicAskRequest; demo
         ? Promise.resolve([{ provider: 'google' as const, providerPlaceID: 'demo-village-park', name: 'Village Park Restaurant', address: 'Damansara Utama, Petaling Jaya, Malaysia', latitude: 3.136, longitude: 101.619, primaryType: 'restaurant' }])
         : publicAskAPI.searchPlaces(query, request.slug)
       search.then((places) => { if (!cancelled) { setResults(places); setSearchError(null) } })
-        .catch(() => { if (!cancelled) { setResults([]); setSearchError('Place search is unavailable. You can enter a public place and its coordinates below.') } })
+        .catch(() => { if (!cancelled) { setResults([]); setSearchError('Place search is unavailable. Suggest the place by name below; the owner can resolve it later.') } })
     }, 300)
     return () => { cancelled = true; window.clearTimeout(timeout) }
   }, [demo, query, request.slug, selectedPlace])
   const canSubmit = Boolean(selectedPlace && note.trim() && (anonymous || name.trim()) && turnstileToken && status !== 'submitting'); const placeLabel = useMemo(() => selectedPlace ? [selectedPlace.name, selectedPlace.address].filter(Boolean).join(' · ') : '', [selectedPlace])
   function selectManualPlace() {
-    const latitude = Number(manualLatitude)
-    const longitude = Number(manualLongitude)
-    if (!manualName.trim() || !manualLatitude.trim() || !manualLongitude.trim() ||
-        !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
-        latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-      setError('Add a place name and valid latitude (−90 to 90) and longitude (−180 to 180).')
-      return
-    }
+    if (!manualName.trim()) { setError('Add the place name so the owner can find it.'); return }
     setError(null)
-    setSelectedPlace({ provider: 'manual', name: manualName.trim(), latitude, longitude })
+    setSelectedPlace({ provider: 'unresolved', name: manualName.trim() })
     setResults([])
-  }
-  function useCurrentCoordinates() {
-    if (!navigator.geolocation) {
-      setLocationError('This browser cannot provide your location. You can enter coordinates manually.')
-      return
-    }
-    setIsLocating(true)
-    setLocationError(null)
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        setManualLatitude(coords.latitude.toFixed(6))
-        setManualLongitude(coords.longitude.toFixed(6))
-        setIsLocating(false)
-      },
-      () => {
-        setLocationError('Location was unavailable or not allowed. You can still enter coordinates manually.')
-        setIsLocating(false)
-      },
-      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 30_000 },
-    )
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -169,7 +138,7 @@ function RecommendationForm({ request, demo }: { request: PublicAskRequest; demo
     }
   }
   if (status === 'success') return <section className="success-card" aria-live="polite"><p className="success-mark" aria-hidden="true">✓</p><p className="ask-label">SENT</p><h2>Recommendation sent.</h2><p>Your recommendation stays private to the trip owner until they choose what to use.</p><a className="button" href="/">Make your own Vazhi request <span aria-hidden="true">↗</span></a></section>
-  return <form className="recommendation-card" onSubmit={submit}><div className="recommendation-card__title"><span aria-hidden="true">✦</span><div><p className="ask-label">YOUR TIP</p><h2>Recommend a place.</h2></div></div><fieldset><legend>Who are you?</legend><label className="checkbox"><input type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} /> <span>Submit anonymously</span></label>{!anonymous && <label>Your first name<input required maxLength={40} autoComplete="given-name" value={name} onChange={(event) => setName(event.target.value)} /></label>}{!anonymous && <label>Instagram handle <span className="optional">optional</span><input maxLength={50} placeholder="@yourhandle" value={handle} onChange={(event) => setHandle(event.target.value)} /></label>}</fieldset><fieldset><legend>The good stuff</legend><label>Category<select value={category} onChange={(event) => setCategory(event.target.value as RecommendationCategory)}>{recommendationCategories.map((item) => <option key={item} value={item}>{categoryLabel[item]}</option>)}</select></label><label>Find a place<input required value={selectedPlace ? placeLabel : query} placeholder={`Search in ${request.destination}`} onChange={(event) => { setSelectedPlace(null); setQuery(event.target.value) }} /></label>{searchError && <p className="form-error" role="alert">{searchError}</p>}{results.length > 0 && <div className="results" aria-label="Place results">{results.map((place) => <button key={`${place.provider}-${place.providerPlaceID ?? place.name}`} type="button" onClick={() => { setSelectedPlace(place); setResults([]) }}><strong>{place.name}</strong><span>{place.address}</span>{place.provider === 'google' && <span className="provider-attribution" translate="no">Google Maps</span>}</button>)}</div>}{selectedPlace?.provider === 'google' && <p className="provider-attribution" translate="no">Google Maps</p>}{selectedPlace && <button type="button" className="clear-place" onClick={() => { setSelectedPlace(null); setQuery('') }}>Change selected place</button>}<details className="pin-fallback"><summary>Can’t find the place? Add a manual pin</summary><p>Use a public venue or landmark, never someone’s home. Your coordinates are not sent until you review and submit.</p><button type="button" className="button button--location" onClick={useCurrentCoordinates} disabled={isLocating}>{isLocating ? 'Finding your location…' : 'Use my current location'}</button>{locationError && <p className="form-error" role="alert">{locationError}</p>}<label>Place name<input value={manualName} maxLength={100} onChange={(event) => setManualName(event.target.value)} /></label><label>Latitude<input type="number" min="-90" max="90" step="any" inputMode="decimal" value={manualLatitude} onChange={(event) => setManualLatitude(event.target.value)} /></label><label>Longitude<input type="number" min="-180" max="180" step="any" inputMode="decimal" value={manualLongitude} onChange={(event) => setManualLongitude(event.target.value)} /></label><button type="button" className="button" onClick={selectManualPlace}>Use this pin</button></details><label>Why is it worth it?<textarea required maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="What should they order, notice, or avoid?" /></label><label>Reference link <span className="optional">optional, https only</span><input type="url" placeholder="https://…" value={referenceURL} onChange={(event) => setReferenceURL(event.target.value)} /></label></fieldset>{!demo && <TurnstileField onToken={setTurnstileToken} resetKey={turnstileResetKey} />}{error && <p className="form-error" role="alert">{error}</p>}<button className="button button--submit" disabled={!canSubmit} type="submit">{status === 'submitting' ? 'Sending…' : 'Send recommendation'} <span aria-hidden="true">↗</span></button><p className="fine-print">Private to this trip owner. Do not submit someone’s home or sensitive location.</p><p className="fine-print">By sharing, you agree to our <a href="/legal/terms">Terms</a>. Abusive, inappropriate, or commercial recommendations may be hidden or removed. Report content in Vazhi; reports are reviewed by our team.</p></form>
+  return <form className="recommendation-card" onSubmit={submit}><div className="recommendation-card__title"><span aria-hidden="true">✦</span><div><p className="ask-label">YOUR TIP</p><h2>Recommend a place.</h2></div></div><fieldset><legend>Who are you?</legend><label className="checkbox"><input type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} /> <span>Submit anonymously</span></label>{!anonymous && <label>Your first name<input required maxLength={40} autoComplete="given-name" value={name} onChange={(event) => setName(event.target.value)} /></label>}{!anonymous && <label>Instagram handle <span className="optional">optional</span><input maxLength={50} placeholder="@yourhandle" value={handle} onChange={(event) => setHandle(event.target.value)} /></label>}</fieldset><fieldset><legend>The good stuff</legend><label>Category<select value={category} onChange={(event) => setCategory(event.target.value as RecommendationCategory)}>{recommendationCategories.map((item) => <option key={item} value={item}>{categoryLabel[item]}</option>)}</select></label><label>Find a place<input required value={selectedPlace ? placeLabel : query} placeholder={`Search in ${request.destination}`} onChange={(event) => { setSelectedPlace(null); setQuery(event.target.value) }} /></label>{searchError && <p className="form-error" role="alert">{searchError}</p>}{results.length > 0 && <div className="results" aria-label="Place results">{results.map((place) => <button key={`${place.provider}-${place.providerPlaceID ?? place.name}`} type="button" onClick={() => { setSelectedPlace(place); setResults([]) }}><strong>{place.name}</strong><span>{place.address}</span>{place.provider === 'google' && <span className="provider-attribution" translate="no">Google Maps</span>}</button>)}</div>}{selectedPlace?.provider === 'google' && <p className="provider-attribution" translate="no">Google Maps</p>}{selectedPlace && <button type="button" className="clear-place" onClick={() => { setSelectedPlace(null); setQuery('') }}>Change selected place</button>}<details className="pin-fallback"><summary>Can’t find the place? Suggest it by name</summary><p>Add a public venue or landmark, never someone’s home. The owner will resolve its location before routing.</p><label>Place name<input value={manualName} maxLength={100} onChange={(event) => setManualName(event.target.value)} /></label><button type="button" className="button" onClick={selectManualPlace}>Use this suggestion</button></details><label>Why is it worth it?<textarea required maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="What should they order, notice, or avoid?" /></label><label>Reference link <span className="optional">optional, https only</span><input type="url" placeholder="https://…" value={referenceURL} onChange={(event) => setReferenceURL(event.target.value)} /></label></fieldset>{!demo && <TurnstileField onToken={setTurnstileToken} resetKey={turnstileResetKey} />}{error && <p className="form-error" role="alert">{error}</p>}<button className="button button--submit" disabled={!canSubmit} type="submit">{status === 'submitting' ? 'Sending…' : 'Send recommendation'} <span aria-hidden="true">↗</span></button><p className="fine-print">Private to this trip owner. Do not submit someone’s home or sensitive location.</p><p className="fine-print">By sharing, you agree to our <a href="/legal/terms">Terms</a>. Abusive, inappropriate, or commercial recommendations may be hidden or removed. Report content in Vazhi; reports are reviewed by our team.</p></form>
 }
 
 function PublicProfilePage({ handle }: { handle: string }) {

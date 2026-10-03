@@ -19,12 +19,12 @@ export type PublicAskRequest = {
 }
 
 export type Place = {
-  provider: 'google' | 'manual'
+  provider: 'google' | 'manual' | 'unresolved'
   providerPlaceID?: string
   name: string
   address?: string
-  latitude: number
-  longitude: number
+  latitude?: number
+  longitude?: number
   primaryType?: string
 }
 

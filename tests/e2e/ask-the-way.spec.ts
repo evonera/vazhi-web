@@ -105,7 +105,7 @@ test('a committed recommendation with a lost response reuses its ID after page r
   expect(committed.size).toBe(1)
 })
 
-test('manual public-place coordinates remain usable when search is unavailable', async ({ page }) => {
+test('unlocated public-place suggestions remain usable when search is unavailable', async ({ page }) => {
   await page.route('**/api/ask?slug=offline-places', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -115,11 +115,10 @@ test('manual public-place coordinates remain usable when search is unavailable',
   await page.goto('/ask/offline-places')
   await page.getByLabel('Find a place').fill('Village Park')
   await expect(page.getByRole('alert').filter({ hasText: 'Place search is unavailable' })).toBeVisible()
-  await page.getByText('Can’t find the place? Add a manual pin').click()
+  await page.getByText('Can’t find the place? Suggest it by name').click()
   await page.getByLabel('Place name').fill('Village Park Restaurant')
-  await page.getByLabel('Latitude').fill('3.136')
-  await page.getByLabel('Longitude').fill('101.619')
-  await page.getByRole('button', { name: 'Use this pin' }).click()
+  await expect(page.getByLabel('Latitude')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Use this suggestion' }).click()
   await expect(page.getByLabel('Find a place')).toHaveValue('Village Park Restaurant')
   await expect(page.getByRole('alert').filter({ hasText: 'Place search is unavailable' })).toHaveCount(0)
 })
