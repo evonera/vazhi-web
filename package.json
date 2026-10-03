@@ -35,6 +35,11 @@
     "react-dom": "^19.2.0",
     "zod": "^4.4.3"
   },
+  "overrides": {
+    "miniflare": {
+      "undici": "7.29.1"
+    }
+  },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.26.0",
     "@playwright/test": "^1.60.0",

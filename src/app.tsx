@@ -34,8 +34,8 @@ export function App() {
     return <PublicGuidePage handle={profileRoute.handle} slug={profileRoute.slug} versionNumber={version} />
   }
   if (profileRoute) return <PublicProfilePage handle={profileRoute.handle} />
-  if (window.location.pathname === '/privacy') return <LegalPage title="Privacy" content={<PrivacyContent />} />
-  if (window.location.pathname === '/terms') return <LegalPage title="Terms" content={<TermsContent />} />
+  if (['/privacy', '/legal/privacy'].includes(window.location.pathname.replace(/\/$/, ''))) return <LegalPage title="Privacy" content={<PrivacyContent />} />
+  if (['/terms', '/legal/terms'].includes(window.location.pathname.replace(/\/$/, ''))) return <LegalPage title="Terms" content={<TermsContent />} />
   if (window.location.pathname === '/report') return <LegalPage title="Report a link" content={<ReportContent />} />
   if (window.location.pathname === '/sign-in') return <OwnerSignInPage />
   if (window.location.pathname === '/requests') return <RequestsPage />

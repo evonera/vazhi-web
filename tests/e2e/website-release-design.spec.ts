@@ -1,5 +1,18 @@
 import { expect, test } from '@playwright/test'
 
+test('legacy in-app legal links open the policy instead of the homepage', async ({ page }) => {
+  for (const path of ['/legal/privacy', '/legal/privacy/']) {
+    await page.goto(path)
+    await expect(page.getByRole('heading', { name: 'Privacy', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Private saved places, Lists, and exports', exact: true })).toBeVisible()
+  }
+  for (const path of ['/legal/terms', '/legal/terms/']) {
+    await page.goto(path)
+    await expect(page.getByRole('heading', { name: 'Terms', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Capture places.', exact: false })).toHaveCount(0)
+  }
+})
+
 test('shared website tokens meet contrast, sizing and appearance expectations', async ({ page }) => {
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
