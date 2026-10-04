@@ -19,9 +19,9 @@ const category = v.union(
   v.literal('culture'), v.literal('nature'), v.literal('avoid'), v.literal('other'),
 )
 const place = v.object({
-  provider: v.union(v.literal('google'), v.literal('manual')),
+  provider: v.union(v.literal('google'), v.literal('manual'), v.literal('unresolved')),
   providerPlaceID: v.optional(v.string()), name: v.string(), address: v.optional(v.string()),
-  latitude: v.number(), longitude: v.number(), primaryType: v.optional(v.string()),
+  latitude: v.optional(v.number()), longitude: v.optional(v.number()), primaryType: v.optional(v.string()),
 })
 
 // A short, transient bucket protects a public link without retaining an IP in
@@ -265,7 +265,9 @@ export const submitPublic = internalMutation({
     if (args.contributorHandle && args.contributorHandle.length > 50) throw new ConvexError('Handle is too long.')
     if (!args.place.name.trim() || args.note.trim().length === 0 || args.note.length > 500) throw new ConvexError('Add a place and a short recommendation.')
     if (args.referenceURL && !isHTTPSURL(args.referenceURL)) throw new ConvexError('Reference links must use HTTPS.')
-    if (args.place.latitude < -90 || args.place.latitude > 90 || args.place.longitude < -180 || args.place.longitude > 180) throw new ConvexError('Choose a valid map location.')
+    if (args.place.provider === 'unresolved') {
+      if (args.place.latitude !== undefined || args.place.longitude !== undefined || args.place.providerPlaceID !== undefined) throw new ConvexError('Resolve this suggestion before attaching a map location.')
+    } else if (!Number.isFinite(args.place.latitude) || !Number.isFinite(args.place.longitude) || Math.abs(args.place.latitude ?? 100) > 90 || Math.abs(args.place.longitude ?? 200) > 180) throw new ConvexError('Choose a valid map location.')
     if (args.place.provider === 'google' && !args.place.providerPlaceID?.trim()) throw new ConvexError('Choose a valid Google place.')
     let contributorKeyHash: string | undefined
     if (args.contributorID !== undefined) {

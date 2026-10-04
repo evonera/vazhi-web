@@ -26,6 +26,7 @@ const phases = [
   // Append new phases: active deletion jobs persist the numeric phase index.
   'profileHandleAliases', 'profiles', 'nativeAuthGrants', 'reelImports', 'recommendationSubmissions',
   'appleRevocationCredentials', 'blockedAskContributors',
+  'privatePlaceMemberships', 'privatePlaceLists', 'savedPlaces', 'privatePlaceReceipts', 'privatePlaceVersions',
 ] as const
 
 type Phase = typeof phases[number]

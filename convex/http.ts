@@ -27,6 +27,29 @@ registerNativeAuth(http)
 
 http.route({ path: '/api/owner/auth-capabilities', method: 'GET', handler: httpAction(async () => json(authCapabilities())) })
 
+http.route({ path: '/api/owner/private-places', method: 'GET', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    const after = Number(new URL(request.url).searchParams.get('after') ?? '0')
+    return privateJson(await ctx.runQuery(internal.privatePlaces.changes, { ownerAuthUserId, after }))
+  } catch { return privateJson({ message: 'Private places could not be loaded. Reconnect and try again.' }, 400) }
+}) })
+http.route({ path: '/api/owner/private-places', method: 'POST', handler: httpAction(async (ctx, request) => {
+  try {
+    const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
+    // The UTF-16-bounded payload is a JSON string inside this envelope; Unicode
+    // and escaping can legitimately exceed 20 KB without exceeding field limits.
+    const raw = await readBoundedRequestBody(request, 50_000)
+    if (raw === null) return privateJson({ message: 'Place data is too large.' }, 413)
+    const input = JSON.parse(raw)
+    // Ownership is never accepted from a device payload.
+    return privateJson(await ctx.runMutation(internal.privatePlaces.push, {
+      ownerAuthUserId, operationID: input.operationID, kind: input.kind, id: input.id,
+      expectedRevision: input.expectedRevision, payloadJSON: input.payloadJSON, deleted: input.deleted,
+    }))
+  } catch { return privateJson({ message: 'Private changes were not saved. Your local draft is retained.' }, 400) }
+}) })
+
 // Native clients use bearer JWTs, and browser clients may call Convex directly
 // during development. Authorization/PATCH need an explicit preflight response.
 http.route({ pathPrefix: '/api/owner/', method: 'OPTIONS', handler: httpAction(async () => new Response(null, {
@@ -321,7 +344,10 @@ http.route({ path: '/api/owner/recommendations', method: 'GET', handler: httpAct
     const ownerAuthUserId = await requireOwnerAuthUserId(ctx)
     const requestId = new URL(request.url).searchParams.get('requestID') ?? ''
     const result = await ctx.runQuery(internal.requests.listRecommendationsForOwner, { ownerAuthUserId, requestId } as never)
-    return json(result.map((recommendation: Doc<'recommendations'>) => ({
+    // Older builds require coordinates for every recommendation; omit new
+    // unlocated tips there rather than inventing a dangerous (0,0) location.
+    const supportsUnlocated = new URL(request.url).searchParams.get('placesVersion') === '2'
+    return json(result.filter(r => supportsUnlocated || r.place.provider !== 'unresolved').map((recommendation: Doc<'recommendations'>) => ({
       id: recommendation._id,
       anonymous: recommendation.anonymous,
       contributorName: recommendation.contributorName,
