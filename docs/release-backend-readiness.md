@@ -26,6 +26,26 @@ Audit date: 1 October 2026. This is a code/test report, not evidence of a produc
 
 ## Apple setup and live proof still required
 
+### Configuration follow-up — 4 October 2026
+
+- With explicit authorization, created Sign in with Apple key `KDX4YK5VR2` for team `DJM3369L94`, associated only with primary App ID `com.evonera.vazhi`. Its one-time `.p8` download is outside the repositories in the owner's Application Support directory with file permissions `0600` and enclosing directory `0700`. No private key or client-secret JWT is committed or printed.
+- Set `APPLE_NATIVE_CLIENT_SECRET` on preview `brainy-cod-251` and production `grandiose-wildebeest-800`. Readback verified the local P-256 signature, key ID, issuer and native bundle-ID subject. Existing `BETTER_AUTH_SECRET` and web Apple configuration were not changed. Development `jovial-firefly-216` was deliberately not changed because both its bundle ID and encryption secret are absent.
+- Preview JWT expires **2 January 2027 at 06:30:24 UTC**; production expires **2 January 2027 at 06:31:08 UTC**. Rotate before expiry; no automatic renewal or scheduled reminder is installed. `scripts/configure-native-apple.mjs` generates 90-day secrets in memory, uses Convex stdin, refuses mismatched bundle IDs/missing encryption secrets, refuses replacing an existing JWT without explicit `--rotate`, and verifies readback. It never installs the private key on Convex.
+- Safe Apple `/auth/token` diagnostic with a deliberately invalid, non-user authorization code returned HTTP 400 `invalid_grant`, not `invalid_client`. This is limited negative-probe evidence, **not** proof of a successful code exchange, refresh-token storage or revocation.
+- Unauthenticated POST to `/api/native/apple/credentials`: production returned 401; preview returned 404. Preview needs the reviewed backend endpoint deployed before a live test. No backend functions, Worker, client or App Store submission were deployed by this configuration step.
+- Fresh local verification: 123 backend tests passed (including 5 mocked Apple credential/revocation tests), both TypeScript checks passed, and 3 additional Node tests passed for the credential generator's ES256 encoding, claims, lifetime and signing-curve validation. These tests do not revoke any real account.
+- **Remaining live gate:** use a dedicated, disposable Apple test account. Freshly sign in on the matching native build and confirm the credential endpoint returns `stored: true`; then explicitly delete that test account and verify revoked Apple authorization and complete backend cleanup. Never delete the owner's existing account or journals for validation. Legacy users must sign in again to capture a new authorization code; the new server credential cannot retroactively recover their missing refresh tokens.
+
+Credential renewal (paths/IDs below are public metadata; do not paste key contents):
+
+```sh
+node scripts/configure-native-apple.mjs --deployment=grandiose-wildebeest-800 \
+  --key="/Users/shakthi/Library/Application Support/Vazhi/AppleSignIn/AuthKey_KDX4YK5VR2.p8" \
+  --team=DJM3369L94 --kid=KDX4YK5VR2 --bundle=com.evonera.vazhi --rotate
+```
+
+This command validates only. Add `--apply` when authorizing renewal; repeat for preview using its exact deployment name. Renewing the JWT does not revoke the key or replace the encryption secret.
+
 Configure on the intended Convex deployment, without placing private values in source control:
 
 - `APPLE_BUNDLE_ID`: the native app's registered bundle ID, currently `com.evonera.vazhi`.
